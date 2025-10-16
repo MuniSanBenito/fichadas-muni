@@ -1,15 +1,17 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { supabase, type Dependencia } from '@/lib/supabase';
-import QRCode from 'qrcode';
-import { QrCode, Download, Building2, Plus } from 'lucide-react';
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { supabase, type Dependencia } from "@/lib/supabase";
+import QRCode from "qrcode";
+import { QrCode, Download, Building2 } from "lucide-react";
 
 export default function AdminPage() {
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDep, setSelectedDep] = useState<Dependencia | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState("");
 
   useEffect(() => {
     loadDependencias();
@@ -18,14 +20,14 @@ export default function AdminPage() {
   const loadDependencias = async () => {
     try {
       const { data, error } = await supabase
-        .from('dependencias')
-        .select('*')
-        .order('nombre');
+        .from("dependencias")
+        .select("*")
+        .order("nombre");
 
       if (error) throw error;
       setDependencias(data || []);
     } catch (err) {
-      console.error('Error cargando dependencias:', err);
+      console.error("Error cargando dependencias:", err);
     } finally {
       setLoading(false);
     }
@@ -34,26 +36,26 @@ export default function AdminPage() {
   const generateQR = async (dependencia: Dependencia) => {
     setSelectedDep(dependencia);
     const url = `${window.location.origin}/?dep=${dependencia.codigo}`;
-    
+
     try {
       const qrUrl = await QRCode.toDataURL(url, {
         width: 400,
         margin: 2,
         color: {
-          dark: '#000000',
-          light: '#FFFFFF',
+          dark: "#000000",
+          light: "#FFFFFF",
         },
       });
       setQrDataUrl(qrUrl);
     } catch (err) {
-      console.error('Error generando QR:', err);
+      console.error("Error generando QR:", err);
     }
   };
 
   const downloadQR = () => {
     if (!qrDataUrl || !selectedDep) return;
-    
-    const link = document.createElement('a');
+
+    const link = document.createElement("a");
     link.download = `qr-${selectedDep.codigo}.png`;
     link.href = qrDataUrl;
     link.click();
@@ -61,8 +63,8 @@ export default function AdminPage() {
 
   const printQR = () => {
     if (!qrDataUrl) return;
-    
-    const printWindow = window.open('', '_blank');
+
+    const printWindow = window.open("", "_blank");
     if (printWindow) {
       printWindow.document.write(`
         <html>
@@ -122,12 +124,12 @@ export default function AdminPage() {
                 </p>
               </div>
             </div>
-            <a
+            <Link
               href="/"
               className="text-blue-600 hover:text-blue-700 font-medium"
             >
               Volver
-            </a>
+            </Link>
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
@@ -136,13 +138,14 @@ export default function AdminPage() {
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Dependencias
               </h2>
-              
+
               {dependencias.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p>No hay dependencias registradas</p>
                   <p className="text-sm mt-2">
-                    Agregá dependencias en Supabase siguiendo las instrucciones en SUPABASE_SETUP.md
+                    Agregá dependencias en Supabase siguiendo las instrucciones
+                    en SUPABASE_SETUP.md
                   </p>
                 </div>
               ) : (
@@ -153,8 +156,8 @@ export default function AdminPage() {
                       onClick={() => generateQR(dep)}
                       className={`w-full text-left p-4 rounded-lg border-2 transition ${
                         selectedDep?.id === dep.id
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-400'
+                          ? "border-blue-600 bg-blue-50 dark:bg-blue-900/20"
+                          : "border-gray-200 dark:border-gray-700 hover:border-blue-400"
                       }`}
                     >
                       <div className="font-medium text-gray-900 dark:text-white">
@@ -179,7 +182,7 @@ export default function AdminPage() {
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Código QR
               </h2>
-              
+
               {!qrDataUrl ? (
                 <div className="flex items-center justify-center h-64 bg-gray-100 dark:bg-gray-700 rounded-lg">
                   <div className="text-center text-gray-500">
@@ -190,9 +193,15 @@ export default function AdminPage() {
               ) : (
                 <div className="space-y-4">
                   <div className="bg-white p-6 rounded-lg border-2 border-gray-200 flex items-center justify-center">
-                    <img src={qrDataUrl} alt="QR Code" className="max-w-full" />
+                    <Image
+                      src={qrDataUrl}
+                      alt="QR Code"
+                      className="max-w-full"
+                      width={400}
+                      height={400}
+                    />
                   </div>
-                  
+
                   {selectedDep && (
                     <div className="text-center">
                       <p className="font-medium text-gray-900 dark:text-white">
@@ -203,7 +212,7 @@ export default function AdminPage() {
                       </p>
                     </div>
                   )}
-                  
+
                   <div className="flex gap-3">
                     <button
                       onClick={downloadQR}
