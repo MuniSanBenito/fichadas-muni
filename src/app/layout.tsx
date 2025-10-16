@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import RegisterSW from "./register-sw";
@@ -17,18 +17,19 @@ export const metadata: Metadata = {
   title: "Fichadas Municipalidad",
   description: "Sistema de registro de fichadas para la Municipalidad de San Benito",
   manifest: "/manifest.json",
-  themeColor: "#2563eb",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Fichadas Muni",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#2563eb",
 };
 
 export default function RootLayout({

@@ -1,15 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
 import Camera from './Camera';
 import { supabase, type FichadaInsert, type Dependencia } from '@/lib/supabase';
 import { MapPin, CheckCircle, AlertCircle, Building2 } from 'lucide-react';
 
 export default function FichadasForm() {
-  const searchParams = useSearchParams();
-  const dependenciaCode = searchParams.get('dep');
-  
   const [documento, setDocumento] = useState('');
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>('');
@@ -17,6 +13,7 @@ export default function FichadasForm() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
+  const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -35,25 +32,21 @@ export default function FichadasForm() {
       );
     }
 
-    // Cargar dependencia si viene del QR
-    if (dependenciaCode) {
-      loadDependencia(dependenciaCode);
-    }
-  }, [dependenciaCode]);
+    // Cargar todas las dependencias
+    loadDependencias();
+  }, []);
 
-  const loadDependencia = async (codigo: string) => {
+  const loadDependencias = async () => {
     try {
       const { data, error } = await supabase
         .from('dependencias')
         .select('*')
-        .eq('codigo', codigo)
-        .single();
+        .order('nombre');
 
       if (error) throw error;
-      setDependencia(data);
+      setDependencias(data || []);
     } catch (err) {
-      setError('No se pudo cargar la dependencia');
-      console.error(err);
+      console.error('Error cargando dependencias:', err);
     }
   };
 
@@ -178,6 +171,31 @@ export default function FichadasForm() {
               />
             </div>
 
+            {/* Selector de Dependencia */}
+            <div>
+              <label htmlFor="dependencia" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Dependencia
+              </label>
+              <select
+                id="dependencia"
+                value={dependencia?.id || ''}
+                onChange={(e) => {
+                  const selected = dependencias.find(d => d.id === e.target.value);
+                  setDependencia(selected || null);
+                }}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                disabled={loading}
+                required
+              >
+                <option value="">Seleccione una dependencia</option>
+                {dependencias.map((dep) => (
+                  <option key={dep.id} value={dep.id}>
+                    {dep.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Camera */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -233,10 +251,10 @@ export default function FichadasForm() {
             </button>
           </form>
 
-          {!dependencia && !dependenciaCode && (
+          {dependencias.length === 0 && (
             <div className="text-center text-sm text-gray-500 dark:text-gray-400">
               <AlertCircle className="w-5 h-5 mx-auto mb-2" />
-              Escanea un código QR para registrar tu fichada
+              Cargando dependencias...
             </div>
           )}
         </div>
