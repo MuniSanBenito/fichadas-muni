@@ -15,6 +15,7 @@ export default function FichadasForm() {
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   useEffect(() => {
     // Obtener ubicación
@@ -44,30 +45,57 @@ export default function FichadasForm() {
         .order('nombre');
 
       if (error) throw error;
-      setDependencias(data || []);
+      
+      // Si no hay datos, usar dependencias de prueba
+      if (!data || data.length === 0) {
+        setDependencias([
+          { id: 'CIC', nombre: 'Intendencia (Prueba)', codigo: 'INT-001', direccion: 'Calle Principal 123', created_at: new Date().toISOString() },
+          { id: 'test-2', nombre: 'Obras Públicas (Prueba)', codigo: 'OBR-001', direccion: 'Av. Trabajo 456', created_at: new Date().toISOString() },
+          { id: 'test-3', nombre: 'Tránsito (Prueba)', codigo: 'TRA-001', direccion: 'Ruta 9 km 2', created_at: new Date().toISOString() },
+        ]);
+      } else {
+        setDependencias(data);
+      }
     } catch (err) {
       console.error('Error cargando dependencias:', err);
+      // Si hay error, usar datos de prueba
+      setDependencias([
+        { id: 'test-1', nombre: 'Intendencia (Prueba)', codigo: 'INT-001', direccion: 'Calle Principal 123', created_at: new Date().toISOString() },
+        { id: 'test-2', nombre: 'Obras Públicas (Prueba)', codigo: 'OBR-001', direccion: 'Av. Trabajo 456', created_at: new Date().toISOString() },
+        { id: 'test-3', nombre: 'Tránsito (Prueba)', codigo: 'TRA-001', direccion: 'Ruta 9 km 2', created_at: new Date().toISOString() },
+      ]);
     }
   };
 
-  const handlePhotoCapture = (blob: Blob) => {
+  const handlePhotoCapture = async (blob: Blob) => {
     setPhotoBlob(blob);
     setPhotoPreview(URL.createObjectURL(blob));
+    setShowCamera(false);
+    
+    // Procesar el registro automáticamente
+    await processRegistro(blob);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!documento || !photoBlob) {
-      setError('Por favor completa todos los campos');
+    if (!documento) {
+      setError('Por favor ingresá tu DNI');
       return;
     }
 
     if (!dependencia) {
-      setError('No se ha seleccionado una dependencia');
+      setError('Por favor seleccioná una dependencia');
       return;
     }
 
+    // Abrir la cámara para tomar la foto
+    setShowCamera(true);
+  };
+
+  const processRegistro = async (photoBlob: Blob) => {
+    if (!dependencia) return;
+    
     setLoading(true);
     setError('');
 
@@ -104,8 +132,9 @@ export default function FichadasForm() {
       setDocumento('');
       setPhotoBlob(null);
       setPhotoPreview('');
+      setDependencia(null);
       
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
       setError('Error al registrar fichada. Intenta nuevamente.');
       console.error(err);
@@ -196,14 +225,12 @@ export default function FichadasForm() {
               </select>
             </div>
 
-            {/* Camera */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Foto (obligatorio)
-              </label>
-              {!photoPreview ? (
-                <Camera onCapture={handlePhotoCapture} disabled={loading} />
-              ) : (
+            {/* Preview de foto si existe */}
+            {photoPreview && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Foto capturada
+                </label>
                 <div className="space-y-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -211,20 +238,9 @@ export default function FichadasForm() {
                     alt="Foto capturada"
                     className="w-full rounded-lg"
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhotoBlob(null);
-                      setPhotoPreview('');
-                    }}
-                    className="w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition"
-                    disabled={loading}
-                  >
-                    Tomar otra foto
-                  </button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Location Status */}
             {location && (
@@ -237,16 +253,18 @@ export default function FichadasForm() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !dependencia}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              disabled={loading || !dependencia || !documento}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
             >
               {loading ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Registrando...
+                  Registrando fichada...
                 </>
+              ) : photoPreview ? (
+                '✅ Fichada Registrada'
               ) : (
-                'Registrar Fichada'
+                '📸 Tomar Foto y Registrar'
               )}
             </button>
           </form>
@@ -264,6 +282,33 @@ export default function FichadasForm() {
           Municipalidad de San Benito
         </p>
       </div>
+
+      {/* Modal de Cámara */}
+      {showCamera && (
+        <div className="fixed inset-0 bg-black bg-opacity-95 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full p-6">
+            <div className="mb-4">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center">
+                Tomá tu foto
+              </h2>
+              <p className="text-center text-gray-600 dark:text-gray-400 mt-2">
+                La fichada se registrará automáticamente
+              </p>
+            </div>
+            
+            <Camera onCapture={handlePhotoCapture} disabled={loading} />
+            
+            <button
+              type="button"
+              onClick={() => setShowCamera(false)}
+              className="w-full mt-4 bg-gray-600 hover:bg-gray-700 text-white px-4 py-3 rounded-lg transition font-medium"
+              disabled={loading}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
