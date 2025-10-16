@@ -7,6 +7,7 @@ Una **PWA (Progressive Web App)** completa para el registro de fichadas de emple
 ### ✨ Funcionalidades Principales
 
 #### 1. **Registro de Fichadas** (`/`)
+- Selector de dependencias (dropdown)
 - Formulario para ingresar DNI
 - Cámara en tiempo real (sin opción de galería)
 - Captura automática de ubicación GPS
@@ -15,21 +16,18 @@ Una **PWA (Progressive Web App)** completa para el registro de fichadas de emple
 - Mensajes de éxito/error
 - Diseño responsive (móvil y desktop)
 
-#### 2. **Generador de QR** (`/admin`)
-- Lista de todas las dependencias
-- Generación de QR único por dependencia
-- Descarga de QR en formato PNG
-- Opción de impresión directa
-- Vista previa del QR generado
-- URL embebida en el QR: `/?dep=CODIGO`
-
-#### 3. **PWA Instalable**
+#### 2. **PWA Instalable**
 - Manifest configurado
 - Service Worker activo
 - Funciona offline (caché básico)
 - Instalable en Android/iOS
 - Íconos personalizables
 - Pantalla splash automática
+
+#### 3. **Códigos QR (Opcional)**
+- Podés generar QR de la URL usando herramientas externas
+- Simplemente generá un QR con: `https://tudominio.com`
+- Los empleados escanean el QR para acceder rápidamente
 
 #### 4. **Base de Datos Supabase**
 - Tabla `dependencias` (lugares de trabajo)
@@ -44,7 +42,7 @@ Una **PWA (Progressive Web App)** completa para el registro de fichadas de emple
 src/
 ├── app/
 │   ├── admin/
-│   │   └── page.tsx          # Página de generación de QR
+│   │   └── page.tsx           # Redirige a home (sin generación de QR)
 │   ├── page.tsx               # Página principal (wrapper)
 │   ├── layout.tsx             # Layout con metadata PWA
 │   ├── globals.css            # Estilos globales
@@ -79,7 +77,6 @@ Documentación/
 | **TypeScript** | Tipado estático |
 | **Tailwind CSS** | Estilos utility-first |
 | **Supabase** | Base de datos PostgreSQL + Storage |
-| **qrcode** | Generación de códigos QR |
 | **Lucide React** | Iconos SVG |
 | **Navigator API** | Geolocalización y cámara |
 
@@ -87,15 +84,15 @@ Documentación/
 
 ### Usuario Empleado:
 ```
-1. Escanea QR en dependencia
+1. Accede a la app (directo o vía QR)
    ↓
-2. Se abre /?dep=CODIGO
+2. Selecciona dependencia del dropdown
    ↓
 3. Ingresa su DNI
    ↓
 4. Activa cámara y toma selfie
    ↓
-5. Sistema captura ubicación
+5. Sistema captura ubicación automática
    ↓
 6. Presiona "Registrar Fichada"
    ↓
@@ -106,19 +103,16 @@ Documentación/
 9. ✅ Confirmación de registro
 ```
 
-### Administrador:
+### Administrador (Configuración de QR opcional):
 ```
-1. Ingresa a /admin
+1. Genera QR de la URL con herramienta externa
+   (ej: https://www.qr-code-generator.com/)
    ↓
-2. Ve lista de dependencias
+2. URL: https://tudominio.com
    ↓
-3. Selecciona una dependencia
+3. Descarga e imprime QR
    ↓
-4. Sistema genera QR automáticamente
-   ↓
-5. Descarga o imprime QR
-   ↓
-6. Coloca QR en la dependencia
+4. Coloca QR en ubicaciones estratégicas
 ```
 
 ## 🗃️ Estructura de Base de Datos
