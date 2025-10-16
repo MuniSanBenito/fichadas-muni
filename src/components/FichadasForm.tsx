@@ -17,23 +17,54 @@ export default function FichadasForm() {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
+    // Cargar todas las dependencias
+    loadDependencias();
+
     // Obtener ubicación
     if (navigator.geolocation) {
+      console.log('Solicitando ubicación GPS...');
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          console.log('Ubicación obtenida:', position.coords);
           setLocation({
             lat: position.coords.latitude,
             lng: position.coords.longitude,
           });
         },
         (err) => {
-          console.error('Error obteniendo ubicación:', err);
+          console.error('Error obteniendo ubicación:', err.message);
+          // Intentar con timeout y maximumAge
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              console.log('Ubicación obtenida (segundo intento):', position.coords);
+              setLocation({
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              });
+            },
+            (err2) => {
+              console.error('Error final obteniendo ubicación:', err2.message);
+              setError('No se pudo obtener la ubicación. Continuá igual, es opcional.');
+              setTimeout(() => setError(''), 3000);
+            },
+            {
+              enableHighAccuracy: false,
+              timeout: 10000,
+              maximumAge: 0
+            }
+          );
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
         }
       );
+    } else {
+      console.error('Geolocalización no disponible');
+      setError('Tu navegador no soporta geolocalización.');
+      setTimeout(() => setError(''), 3000);
     }
-
-    // Cargar todas las dependencias
-    loadDependencias();
   }, []);
 
   const loadDependencias = async () => {
