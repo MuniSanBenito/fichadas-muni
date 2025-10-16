@@ -74,8 +74,8 @@ export default function FichadasForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!documento || !photoBlob) {
-      setError('Por favor completá todos los campos y tomá una foto');
+    if (!documento) {
+      setError('Por favor ingresá tu DNI');
       return;
     }
 
@@ -84,8 +84,8 @@ export default function FichadasForm() {
       return;
     }
 
-    if (!location) {
-      setError('Esperando ubicación GPS...');
+    if (!photoBlob) {
+      setError('Por favor tomá una foto');
       return;
     }
 
@@ -106,13 +106,13 @@ export default function FichadasForm() {
         .from('fotos-fichadas')
         .getPublicUrl(fileName);
 
-      // Guardar fichada con ubicación
+      // Guardar fichada con ubicación (opcional)
       const fichadaData: FichadaInsert = {
         dependencia_id: dependencia.id,
         documento,
         foto_url: urlData.publicUrl,
-        latitud: location.lat,
-        longitud: location.lng,
+        latitud: location?.lat,
+        longitud: location?.lng,
       };
 
       console.log('Enviando fichada:', fichadaData);
@@ -251,17 +251,24 @@ export default function FichadasForm() {
             </div>
 
             {/* Location Status */}
-            {location && (
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                <MapPin className="w-4 h-4 text-green-600" />
-                <span>Ubicación capturada</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2 text-sm">
+              {location ? (
+                <>
+                  <MapPin className="w-4 h-4 text-green-600" />
+                  <span className="text-green-600">✓ Ubicación capturada</span>
+                </>
+              ) : (
+                <>
+                  <MapPin className="w-4 h-4 text-yellow-600" />
+                  <span className="text-yellow-600">⚠ Ubicación no disponible (opcional)</span>
+                </>
+              )}
+            </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !dependencia || !documento || !photoBlob || !location}
+              disabled={loading || !dependencia || !documento || !photoBlob}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
             >
               {loading ? (
@@ -273,6 +280,15 @@ export default function FichadasForm() {
                 'Registrar Fichada'
               )}
             </button>
+            
+            {/* Indicador de qué falta */}
+            {(!documento || !dependencia || !photoBlob) && (
+              <div className="text-sm text-gray-500 text-center">
+                {!documento && '⚠ Falta: DNI • '}
+                {!dependencia && '⚠ Falta: Dependencia • '}
+                {!photoBlob && '⚠ Falta: Foto'}
+              </div>
+            )}
           </form>
 
           {dependencias.length === 0 && (
