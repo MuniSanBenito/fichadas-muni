@@ -81,7 +81,7 @@ export default function FichadasForm() {
     try {
       // Subir foto a Supabase Storage
       const fileName = `${Date.now()}-${documento}.jpg`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('fotos-fichadas')
         .upload(fileName, photoBlob);
 
@@ -187,6 +187,7 @@ export default function FichadasForm() {
                 <Camera onCapture={handlePhotoCapture} disabled={loading} />
               ) : (
                 <div className="space-y-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photoPreview}
                     alt="Foto capturada"

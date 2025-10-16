@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera as CameraIcon, RefreshCw } from 'lucide-react';
 
 interface CameraProps {
@@ -16,7 +16,15 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [error, setError] = useState<string>('');
 
-  const startCamera = async () => {
+  const stopCamera = useCallback(() => {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      setStream(null);
+      setIsCameraActive(false);
+    }
+  }, [stream]);
+
+  const startCamera = useCallback(async () => {
     try {
       setError('');
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -33,15 +41,7 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
       setError('No se pudo acceder a la cámara. Por favor, permite el acceso.');
       console.error('Error accessing camera:', err);
     }
-  };
-
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
-      setIsCameraActive(false);
-    }
-  };
+  }, [facingMode]);
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -73,13 +73,13 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
     if (facingMode && !stream) {
       startCamera();
     }
-  }, [facingMode]);
+  }, [facingMode, stream, startCamera]);
 
   useEffect(() => {
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   return (
     <div className="space-y-4">

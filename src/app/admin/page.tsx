@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { supabase, type Dependencia } from "@/lib/supabase";
 import QRCode from "qrcode";
 import { QrCode, Download, Building2 } from "lucide-react";
@@ -193,12 +192,11 @@ export default function AdminPage() {
               ) : (
                 <div className="space-y-4">
                   <div className="bg-white p-6 rounded-lg border-2 border-gray-200 flex items-center justify-center">
-                    <Image
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
                       src={qrDataUrl}
                       alt="QR Code"
                       className="max-w-full"
-                      width={400}
-                      height={400}
                     />
                   </div>
 
