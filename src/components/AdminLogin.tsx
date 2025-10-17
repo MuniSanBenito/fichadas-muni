@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import Link from 'next/link';
 import { Lock, User, Eye, EyeOff, ShieldCheck, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -35,16 +36,17 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
         // Login exitoso
         onLoginSuccess();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error de autenticación:', err);
       
       // Mensajes de error personalizados
-      if (err.message.includes('Invalid login credentials')) {
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+      if (errorMessage.includes('Invalid login credentials')) {
         setError('Email o contraseña incorrectos');
-      } else if (err.message.includes('Email not confirmed')) {
+      } else if (errorMessage.includes('Email not confirmed')) {
         setError('Email no verificado. Contacta al administrador del sistema');
       } else {
-        setError(err.message || 'Error al iniciar sesión');
+        setError(errorMessage || 'Error al iniciar sesión');
       }
       
       setPassword('');
@@ -179,12 +181,12 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
         {/* Link de regreso */}
         <div className="text-center mt-6">
-          <a
+          <Link
             href="/"
             className="text-white/80 hover:text-white text-sm font-medium transition"
           >
             ← Volver al registro de fichadas
-          </a>
+          </Link>
         </div>
       </div>
     </div>

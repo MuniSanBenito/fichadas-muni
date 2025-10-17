@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { supabase, type Fichada, type Dependencia } from '@/lib/supabase';
 import { 
   Search, 
@@ -39,13 +40,42 @@ export default function AdminPanel() {
   // Modal para ver foto
   const [selectedFichada, setSelectedFichada] = useState<FichadaConDependencia | null>(null);
 
+  const filterFichadas = useCallback(() => {
+    let filtered = [...fichadas];
+
+    // Filtrar por DNI
+    if (searchDni) {
+      filtered = filtered.filter(f => f.documento.includes(searchDni));
+    }
+
+    // Filtrar por dependencia
+    if (selectedDependencia) {
+      filtered = filtered.filter(f => f.dependencia_id === selectedDependencia);
+    }
+
+    // Filtrar por fecha desde
+    if (fechaDesde) {
+      const desde = new Date(fechaDesde);
+      filtered = filtered.filter(f => new Date(f.fecha_hora) >= desde);
+    }
+
+    // Filtrar por fecha hasta
+    if (fechaHasta) {
+      const hasta = new Date(fechaHasta);
+      hasta.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(f => new Date(f.fecha_hora) <= hasta);
+    }
+
+    setFilteredFichadas(filtered);
+  }, [fichadas, searchDni, selectedDependencia, fechaDesde, fechaHasta]);
+
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
     filterFichadas();
-  }, [fichadas, searchDni, selectedDependencia, fechaDesde, fechaHasta]);
+  }, [filterFichadas]);
 
   const loadData = async () => {
     setLoading(true);
@@ -82,34 +112,6 @@ export default function AdminPanel() {
     }
   };
 
-  const filterFichadas = () => {
-    let filtered = [...fichadas];
-
-    // Filtrar por DNI
-    if (searchDni) {
-      filtered = filtered.filter(f => f.documento.includes(searchDni));
-    }
-
-    // Filtrar por dependencia
-    if (selectedDependencia) {
-      filtered = filtered.filter(f => f.dependencia_id === selectedDependencia);
-    }
-
-    // Filtrar por fecha desde
-    if (fechaDesde) {
-      const desde = new Date(fechaDesde);
-      filtered = filtered.filter(f => new Date(f.fecha_hora) >= desde);
-    }
-
-    // Filtrar por fecha hasta
-    if (fechaHasta) {
-      const hasta = new Date(fechaHasta);
-      hasta.setHours(23, 59, 59, 999);
-      filtered = filtered.filter(f => new Date(f.fecha_hora) <= hasta);
-    }
-
-    setFilteredFichadas(filtered);
-  };
 
   const exportToCSV = () => {
     const headers = ['Fecha y Hora', 'DNI', 'Dependencia', 'Ubicación'];
@@ -163,13 +165,13 @@ export default function AdminPanel() {
       <div className="max-w-7xl mx-auto">
         {/* Botón de regreso */}
         <div className="mb-4">
-          <a
+          <Link
             href="/"
             className="inline-flex items-center gap-2 text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
           >
             <ArrowLeft className="w-5 h-5" />
             Volver al registro de fichadas
-          </a>
+          </Link>
         </div>
 
         {/* Header */}
