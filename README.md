@@ -7,7 +7,10 @@ PWA (Progressive Web App) para el registro de fichadas en las distintas dependen
 - ✅ **PWA Instalable**: La aplicación puede instalarse en dispositivos móviles
 - 📸 **Captura de Foto en Tiempo Real**: Obligatorio tomar foto, sin opción de galería
 - 📍 **Geolocalización**: Registro automático de ubicación y hora
-- 🔲 **Códigos QR por Dependencia**: Generación de QR únicos para cada lugar
+- 🔐 **Sistema de Login**: Acceso protegido al panel administrativo con sesiones
+- 👥 **Panel de Administración RRHH**: Visualización, filtrado y exportación de fichadas
+- 🖼️ **Visor de Imágenes Mejorado**: Modal ampliado con zoom y descarga
+- 📊 **Exportación CSV**: Generación de reportes para análisis en Excel
 - 💾 **Base de Datos Supabase**: Almacenamiento seguro de datos y fotos
 - 🎨 **UI Moderna**: Interfaz responsive con Tailwind CSS
 
@@ -47,6 +50,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_clave_anonima
 ### 4. Iconos PWA
 
 Creá dos iconos para la PWA (ver `ICONOS_PWA.md`):
+
 - `public/icon-192.png` (192x192px)
 - `public/icon-512.png` (512x512px)
 
@@ -64,19 +68,38 @@ Abrí [http://localhost:3000](http://localhost:3000) en tu navegador.
 
 ### Para Empleados
 
-1. **Escanear QR**: Escaneá el código QR de la dependencia con la cámara del celular
-2. **Ingresar DNI**: Escribí tu número de documento
+1. **Ingresar DNI**: Escribí tu número de documento
+2. **Seleccionar Dependencia**: Elegí tu lugar de trabajo (CIC, NIDO, Pañol, etc.)
 3. **Tomar Foto**: Tomá una selfie (debe ser en tiempo real, no de galería)
 4. **Registrar**: Presioná "Registrar Fichada"
 
 La ubicación y hora se registran automáticamente.
 
-### Para Administradores
+### Para Recursos Humanos
 
-1. **Acceder a Admin**: Ingresá a `/admin` en tu navegador
-2. **Seleccionar Dependencia**: Hacé clic en una dependencia de la lista
-3. **Generar QR**: El código QR se genera automáticamente
-4. **Descargar/Imprimir**: Descargá o imprimí el QR para colocarlo en la dependencia
+**Panel de Administración** (`/admin`) - 🔐 **Protegido con Login**:
+
+Las credenciales de acceso se gestionan a través de Supabase Auth. Ver [`SUPABASE_AUTH_SETUP.md`](./SUPABASE_AUTH_SETUP.md) para crear usuarios.
+
+#### Funcionalidades
+
+1. **Visualizar Fichadas**: Acceso completo a todas las fichadas registradas
+2. **Filtrar Datos**:
+   - Por DNI del empleado
+   - Por dependencia
+   - Por rango de fechas
+3. **Ver Detalles**: Click en "Ver foto" para ver la foto completa con zoom y diseño mejorado
+4. **Exportar Datos**: Botón "Exportar CSV" para generar reportes
+5. **Actualizar**: Botón para recargar datos en tiempo real
+6. **Cerrar Sesión**: Botón para salir del panel de forma segura
+
+#### Visualización de Imágenes
+
+- Modal ampliado y mejorado
+- Zoom suave al pasar el mouse
+- Botón de descarga de imagen
+- Información en tarjetas organizadas por categoría
+- Ubicación GPS con link directo a Google Maps
 
 ## 🗂️ Estructura del Proyecto
 
@@ -84,10 +107,13 @@ La ubicación y hora se registran automáticamente.
 fichadas-muni/
 ├── src/
 │   ├── app/
-│   │   ├── admin/          # Página de generación de QR
+│   │   ├── admin/          # Panel de administración RRHH
+│   │   │   └── page.tsx    # Página con lógica de autenticación
 │   │   ├── page.tsx        # Página principal de fichadas
 │   │   └── layout.tsx      # Layout con metadata PWA
 │   ├── components/
+│   │   ├── AdminPanel.tsx  # Panel de admin completo
+│   │   ├── AdminLogin.tsx  # Formulario de login
 │   │   ├── Camera.tsx      # Componente de cámara
 │   │   └── FichadasForm.tsx # Formulario de fichadas
 │   └── lib/
@@ -95,6 +121,8 @@ fichadas-muni/
 ├── public/
 │   ├── manifest.json       # Manifest de PWA
 │   └── sw.js              # Service Worker
+├── ADMIN_PANEL.md         # Documentación del panel admin
+├── ADMIN_LOGIN.md         # Documentación del sistema de login
 ├── SUPABASE_SETUP.md      # Instrucciones de BD
 └── ICONOS_PWA.md          # Instrucciones de iconos
 ```
@@ -102,6 +130,7 @@ fichadas-muni/
 ## 🗃️ Estructura de Base de Datos
 
 ### Tabla `dependencias`
+
 - `id` (UUID): Identificador único
 - `nombre` (VARCHAR): Nombre de la dependencia
 - `codigo` (VARCHAR): Código único para QR
@@ -109,6 +138,7 @@ fichadas-muni/
 - `created_at` (TIMESTAMP): Fecha de creación
 
 ### Tabla `fichadas`
+
 - `id` (UUID): Identificador único
 - `dependencia_id` (UUID): Referencia a dependencia
 - `documento` (VARCHAR): DNI del empleado
@@ -135,6 +165,7 @@ vercel
 ### Otras Plataformas
 
 También podés deployar en:
+
 - Netlify
 - Railway
 - Render

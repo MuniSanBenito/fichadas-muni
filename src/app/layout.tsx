@@ -17,6 +17,14 @@ export const metadata: Metadata = {
   title: "Fichadas Municipalidad",
   description: "Sistema de registro de fichadas para la Municipalidad de San Benito",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.webp", sizes: "any", type: "image/webp" },
+    ],
+    apple: [
+      { url: "/icon.webp", sizes: "any", type: "image/webp" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -29,7 +37,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#2563eb",
+  themeColor: "#b6c544", // Color primary de la paleta
 };
 
 export default function RootLayout({

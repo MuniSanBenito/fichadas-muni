@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import AdminPanel from "@/components/AdminPanel";
-import AdminLogin from "@/components/AdminLogin";
+import AdminLoginSupabase from "@/components/AdminLoginSupabase";
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -16,7 +16,17 @@ export default function AdminPage() {
     // Escuchar cambios en la autenticación
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        setIsAuthenticated(true);
+        // Verificar si el usuario tiene permisos de admin
+        const userRole = session.user.user_metadata?.role;
+        if (userRole === 'admin') {
+          setIsAuthenticated(true);
+        } else {
+          // O verificar por email si prefieres
+          // const allowedEmails = ['email1@dominio.com', 'email2@dominio.com'];
+          // if (allowedEmails.includes(session.user.email || '')) {
+          //   setIsAuthenticated(true);
+          // }
+        }
       } else if (event === 'SIGNED_OUT') {
         setIsAuthenticated(false);
       }
@@ -32,7 +42,11 @@ export default function AdminPage() {
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
-        setIsAuthenticated(true);
+        // Verificar permisos de admin
+        const userRole = session.user.user_metadata?.role;
+        if (userRole === 'admin') {
+          setIsAuthenticated(true);
+        }
       }
     } catch (error) {
       console.error('Error al verificar sesión:', error);
@@ -56,5 +70,5 @@ export default function AdminPage() {
     );
   }
 
-  return isAuthenticated ? <AdminPanel /> : <AdminLogin onLoginSuccess={handleLoginSuccess} />;
+  return isAuthenticated ? <AdminPanel /> : <AdminLoginSupabase onLoginSuccess={handleLoginSuccess} />;
 }

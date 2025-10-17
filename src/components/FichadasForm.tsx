@@ -170,13 +170,13 @@ export default function FichadasForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#f0f9ff] via-[#fef9e7] to-[#e8f8f5] dark:from-gray-900 dark:to-gray-800 py-8 px-4">
       <div className="max-w-lg mx-auto">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 space-y-6">
           {/* Header */}
           <div className="text-center space-y-2">
             <div className="flex justify-center">
-              <div className="bg-blue-600 p-3 rounded-full">
+              <div className="bg-[#b6c544] p-3 rounded-full">
                 <Building2 className="w-8 h-8 text-white" />
               </div>
             </div>
@@ -300,7 +300,7 @@ export default function FichadasForm() {
             <button
               type="submit"
               disabled={loading || !dependencia || !documento || !photoBlob}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
+              className="w-full bg-[#b6c544] hover:bg-[#9fb338] disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg shadow-lg hover:shadow-xl"
             >
               {loading ? (
                 <>
@@ -331,9 +331,17 @@ export default function FichadasForm() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-6">
-          Municipalidad de San Benito
-        </p>
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Municipalidad de San Benito
+          </p>
+          <a
+            href="/admin"
+            className="inline-block text-sm text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] hover:underline font-medium"
+          >
+            Acceso Recursos Humanos →
+          </a>
+        </div>
       </div>
     </div>
   );
