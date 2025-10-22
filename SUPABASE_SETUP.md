@@ -28,6 +28,7 @@ CREATE TABLE fichadas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   dependencia_id UUID REFERENCES dependencias(id) ON DELETE CASCADE,
   documento VARCHAR(20) NOT NULL,
+  tipo VARCHAR(10) NOT NULL DEFAULT 'entrada' CHECK (tipo IN ('entrada', 'salida')),
   foto_url TEXT,
   latitud DECIMAL(10, 8),
   longitud DECIMAL(11, 8),
@@ -39,6 +40,7 @@ CREATE TABLE fichadas (
 CREATE INDEX idx_fichadas_dependencia ON fichadas(dependencia_id);
 CREATE INDEX idx_fichadas_documento ON fichadas(documento);
 CREATE INDEX idx_fichadas_fecha ON fichadas(fecha_hora);
+CREATE INDEX idx_fichadas_tipo ON fichadas(tipo);
 
 -- Habilitar Row Level Security
 ALTER TABLE dependencias ENABLE ROW LEVEL SECURITY;

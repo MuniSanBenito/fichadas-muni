@@ -14,10 +14,13 @@ export interface Dependencia {
   created_at: string;
 }
 
+export type TipoFichada = 'entrada' | 'salida';
+
 export interface Fichada {
   id: string;
   dependencia_id: string;
   documento: string;
+  tipo: TipoFichada;
   foto_url?: string;
   latitud?: number;
   longitud?: number;
@@ -28,6 +31,7 @@ export interface Fichada {
 export interface FichadaInsert {
   dependencia_id: string;
   documento: string;
+  tipo: TipoFichada;
   foto_url?: string;
   latitud?: number;
   longitud?: number;

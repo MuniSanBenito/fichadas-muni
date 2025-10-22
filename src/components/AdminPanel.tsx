@@ -17,7 +17,8 @@ import {
   RefreshCw,
   AlertCircle,
   ArrowLeft,
-  LogOut
+  LogOut,
+  LogIn
 } from 'lucide-react';
 
 interface FichadaConDependencia extends Fichada {
@@ -114,10 +115,11 @@ export default function AdminPanel() {
 
 
   const exportToCSV = () => {
-    const headers = ['Fecha y Hora', 'DNI', 'Dependencia', 'Ubicación'];
+    const headers = ['Fecha y Hora', 'DNI', 'Tipo', 'Dependencia', 'Ubicación'];
     const rows = filteredFichadas.map(f => [
       new Date(f.fecha_hora).toLocaleString('es-AR'),
       f.documento,
+      f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1),
       f.dependencia?.nombre || 'N/A',
       f.latitud && f.longitud ? `${f.latitud}, ${f.longitud}` : 'No disponible'
     ]);
@@ -161,7 +163,7 @@ export default function AdminPanel() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f0f9ff] via-[#fef9e7] to-[#e8f8f5] dark:from-gray-900 dark:to-gray-800 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Botón de regreso */}
         <div className="mb-4">
@@ -377,6 +379,9 @@ export default function AdminPanel() {
                       DNI
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Tipo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Dependencia
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -412,6 +417,19 @@ export default function AdminPanel() {
                               {fichada.documento}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
+                            fichada.tipo === 'entrada'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                          }`}>
+                            {fichada.tipo === 'entrada' ? (
+                              <><LogIn className="w-3 h-3" /> Entrada</>
+                            ) : (
+                              <><LogOut className="w-3 h-3" /> Salida</>
+                            )}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
@@ -471,7 +489,7 @@ export default function AdminPanel() {
               {/* Header del modal */}
               <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between rounded-t-3xl z-10">
                 <div className="flex items-center gap-3">
-                  <div className="bg-gradient-to-br from-[#b6c544] to-[#9fb338] p-2.5 rounded-xl">
+                  <div className="bg-[#b6c544] p-2.5 rounded-xl">
                     <Eye className="w-6 h-6 text-white" />
                   </div>
                   <div>
@@ -493,8 +511,8 @@ export default function AdminPanel() {
               
               <div className="p-6 space-y-6">
                 {/* Información en tarjetas */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-gradient-to-br from-[#f0f9e6] to-[#e8f5d8] dark:from-[#b6c544]/20 dark:to-[#9fb338]/20 p-4 rounded-2xl border border-[#b6c544]/30 dark:border-[#b6c544]/50">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="bg-[#f0f9e6] dark:bg-[#b6c544]/20 p-4 rounded-2xl border border-[#b6c544]/30 dark:border-[#b6c544]/50">
                     <div className="flex items-center gap-2 mb-1">
                       <User className="w-4 h-4 text-[#076633] dark:text-[#b6c544]" />
                       <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">DNI</span>
@@ -503,31 +521,53 @@ export default function AdminPanel() {
                       {selectedFichada.documento}
                     </p>
                   </div>
-                  
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-2xl border border-purple-200 dark:border-purple-800">
+
+                  <div className={`p-4 rounded-2xl border ${
+                    selectedFichada.tipo === 'entrada'
+                      ? 'bg-green-50 dark:bg-green-900/20 border-green-500/30 dark:border-green-500/50'
+                      : 'bg-orange-50 dark:bg-orange-900/20 border-orange-500/30 dark:border-orange-500/50'
+                  }`}>
                     <div className="flex items-center gap-2 mb-1">
-                      <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                      <span className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase">Dependencia</span>
+                      {selectedFichada.tipo === 'entrada' ? (
+                        <LogIn className="w-4 h-4 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <LogOut className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                      )}
+                      <span className={`text-xs font-medium uppercase ${
+                        selectedFichada.tipo === 'entrada'
+                          ? 'text-green-600 dark:text-green-400'
+                          : 'text-orange-600 dark:text-orange-400'
+                      }`}>Tipo</span>
+                    </div>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white capitalize">
+                      {selectedFichada.tipo}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-[#7bcbe2]/10 dark:bg-[#7bcbe2]/20 p-4 rounded-2xl border border-[#7bcbe2]/30 dark:border-[#7bcbe2]/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Building2 className="w-4 h-4 text-[#7bcbe2] dark:text-[#7bcbe2]" />
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#7bcbe2] uppercase">Dependencia</span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {selectedFichada.dependencia?.nombre || 'N/A'}
                     </p>
                   </div>
                   
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 p-4 rounded-2xl border border-green-200 dark:border-green-800">
+                  <div className="bg-[#b6c544]/10 dark:bg-[#b6c544]/20 p-4 rounded-2xl border border-[#b6c544]/30 dark:border-[#b6c544]/50">
                     <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-4 h-4 text-green-600 dark:text-green-400" />
-                      <span className="text-xs font-medium text-green-600 dark:text-green-400 uppercase">Fecha</span>
+                      <Calendar className="w-4 h-4 text-[#076633] dark:text-[#b6c544]" />
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">Fecha</span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {formatDateTime(selectedFichada.fecha_hora).date}
                     </p>
                   </div>
                   
-                  <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 p-4 rounded-2xl border border-orange-200 dark:border-orange-800">
+                  <div className="bg-[#fbd300]/10 dark:bg-[#fbd300]/20 p-4 rounded-2xl border border-[#fbd300]/30 dark:border-[#fbd300]/50">
                     <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                      <span className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase">Hora</span>
+                      <Calendar className="w-4 h-4 text-[#076633] dark:text-[#fbd300]" />
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#fbd300] uppercase">Hora</span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {formatDateTime(selectedFichada.fecha_hora).time}
@@ -560,14 +600,13 @@ export default function AdminPanel() {
                         alt="Foto de fichada"
                         className="w-full h-auto object-contain max-h-[500px] transition-transform duration-300 group-hover:scale-105"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>
                   </div>
                 )}
 
                 {/* Ubicación con mejor diseño */}
                 {selectedFichada.latitud && selectedFichada.longitud && (
-                  <div className="bg-gradient-to-r from-[#f0f9e6] to-[#e8f5d8] dark:from-gray-700 dark:to-gray-600 p-6 rounded-2xl border border-[#b6c544]/30 dark:border-gray-600">
+                  <div className="bg-[#f0f9e6] dark:bg-gray-700 p-6 rounded-2xl border border-[#b6c544]/30 dark:border-gray-600">
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <div className="bg-[#b6c544] p-3 rounded-xl">

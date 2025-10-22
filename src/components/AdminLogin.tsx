@@ -56,7 +56,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#076633] via-[#7bcbe2] to-[#b6c544] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#076633] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]" />
       
       <div className="relative w-full max-w-md">
@@ -153,7 +153,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-[#b6c544] to-[#fbd300] hover:from-[#9fb338] hover:to-[#e0be00] text-[#1a1a1a] font-semibold py-3 px-6 rounded-xl transition shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-[#b6c544] hover:bg-[#9fb338] text-white font-semibold py-3 px-6 rounded-xl transition shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>

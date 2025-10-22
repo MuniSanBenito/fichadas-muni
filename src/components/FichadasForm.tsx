@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Camera from './Camera';
-import { supabase, type FichadaInsert, type Dependencia } from '@/lib/supabase';
-import { MapPin, CheckCircle, AlertCircle, Building2 } from 'lucide-react';
+import { supabase, type FichadaInsert, type Dependencia, type TipoFichada } from '@/lib/supabase';
+import { MapPin, CheckCircle, AlertCircle, Building2, LogIn, LogOut } from 'lucide-react';
 
 export default function FichadasForm() {
   const [documento, setDocumento] = useState('');
@@ -14,6 +14,7 @@ export default function FichadasForm() {
   const [error, setError] = useState('');
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
+  const [tipoFichada, setTipoFichada] = useState<TipoFichada>('entrada');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -141,6 +142,7 @@ export default function FichadasForm() {
       const fichadaData: FichadaInsert = {
         dependencia_id: dependencia.id,
         documento,
+        tipo: tipoFichada,
         foto_url: urlData.publicUrl,
         latitud: location?.lat,
         longitud: location?.lng,
@@ -159,6 +161,7 @@ export default function FichadasForm() {
       setPhotoBlob(null);
       setPhotoPreview('');
       setDependencia(null);
+      setTipoFichada('entrada');
       
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
@@ -170,7 +173,7 @@ export default function FichadasForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#f0f9ff] via-[#fef9e7] to-[#e8f8f5] dark:from-gray-900 dark:to-gray-800 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
       <div className="max-w-lg mx-auto">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 space-y-6">
           {/* Header */}
@@ -224,6 +227,41 @@ export default function FichadasForm() {
                 disabled={loading}
                 required
               />
+            </div>
+
+            {/* Selector de Tipo de Fichada */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                Tipo de Fichada
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setTipoFichada('entrada')}
+                  disabled={loading}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
+                    tipoFichada === 'entrada'
+                      ? 'bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400'
+                      : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                  }`}
+                >
+                  <LogIn className="w-5 h-5" />
+                  <span className="font-semibold">Entrada</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipoFichada('salida')}
+                  disabled={loading}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
+                    tipoFichada === 'salida'
+                      ? 'bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400'
+                      : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                  }`}
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span className="font-semibold">Salida</span>
+                </button>
+              </div>
             </div>
 
             {/* Selector de Dependencia */}
