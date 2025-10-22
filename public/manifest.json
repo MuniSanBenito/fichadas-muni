@@ -1,7 +1,7 @@
 {
-  "name": "Fichadas Municipalidad",
+  "name": "Fichadas Municipalidad de San Benito",
   "short_name": "Fichadas",
-  "description": "Sistema de registro de fichadas para la Municipalidad de San Benito",
+  "description": "Sistema de registro de fichadas",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -10,9 +10,15 @@
   "icons": [
     {
       "src": "/icon.webp",
-      "sizes": "any",
+      "sizes": "192x192",
       "type": "image/webp",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
     }
   ]
 }
