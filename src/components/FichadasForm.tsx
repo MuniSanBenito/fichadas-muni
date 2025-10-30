@@ -70,8 +70,9 @@ export default function FichadasForm() {
         setLocationValidation(validation);
         console.log("📍 Validación GPS:", validation);
 
+        // Ya no bloqueamos, solo mostramos advertencia
         if (!validation.permitido) {
-          setError(validation.mensaje);
+          console.log("⚠️ Usuario fuera del rango, pero puede fichar igual");
         }
       },
       (err) => {
@@ -114,7 +115,9 @@ export default function FichadasForm() {
               setLocationValidation(validation);
 
               if (!validation.permitido) {
-                setError(validation.mensaje);
+                console.log(
+                  "⚠️ Usuario fuera del rango, pero puede fichar igual"
+                );
               }
             },
             (err2) => {
@@ -473,14 +476,17 @@ export default function FichadasForm() {
               ) : location &&
                 locationValidation &&
                 !locationValidation.permitido ? (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg p-3 flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-red-700 dark:text-red-300 font-medium text-sm">
-                      No estás cerca de ninguna dependencia
+                    <p className="text-yellow-700 dark:text-yellow-300 font-medium text-sm">
+                      ⚠️ Advertencia: Estás fuera del rango
                     </p>
-                    <p className="text-red-600 dark:text-red-400 text-xs mt-1">
+                    <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
                       {locationValidation.mensaje}
+                    </p>
+                    <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-2 italic">
+                      Podés fichar igual, pero tu ubicación quedará registrada.
                     </p>
                   </div>
                 </div>
@@ -531,12 +537,7 @@ export default function FichadasForm() {
             <button
               type="submit"
               disabled={
-                loading ||
-                !dependencia ||
-                !documento ||
-                !photoBlob ||
-                !location ||
-                !!(locationValidation && !locationValidation.permitido)
+                loading || !dependencia || !documento || !photoBlob || !location
               }
               className="w-full bg-[#b6c544] hover:bg-[#9fb338] disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg shadow-lg hover:shadow-xl"
             >
@@ -551,11 +552,7 @@ export default function FichadasForm() {
             </button>
 
             {/* Indicador de qué falta */}
-            {(!documento ||
-              !dependencia ||
-              !photoBlob ||
-              !location ||
-              (locationValidation && !locationValidation.permitido)) && (
+            {(!documento || !dependencia || !photoBlob || !location) && (
               <div className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
                 <div className="text-center">
                   {!documento && "⚠ Falta: DNI • "}
@@ -563,21 +560,26 @@ export default function FichadasForm() {
                   {!photoBlob && "⚠ Falta: Foto • "}
                   {!location && "⚠ Falta: Ubicación GPS"}
                 </div>
-                {location &&
-                  locationValidation &&
-                  !locationValidation.permitido && (
-                    <div className="text-red-600 dark:text-red-400 font-medium text-center bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-200 dark:border-red-800">
-                      🚫 Debes estar en CIC o NIDO para fichar (máximo 100m de
-                      distancia)
-                    </div>
-                  )}
                 {gpsPermissionDenied && (
                   <div className="text-orange-600 dark:text-orange-400 font-medium text-center bg-orange-50 dark:bg-orange-900/20 p-2 rounded border border-orange-200 dark:border-orange-800">
-                    📍 Habilita los permisos de ubicación para continuar
+                    � Habilita los permisos de ubicación para continuar
                   </div>
                 )}
               </div>
             )}
+
+            {/* Advertencia adicional si está fuera de rango pero puede fichar */}
+            {documento &&
+              dependencia &&
+              photoBlob &&
+              location &&
+              locationValidation &&
+              !locationValidation.permitido && (
+                <div className="text-sm text-yellow-700 dark:text-yellow-300 text-center bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                  ⚠️ <strong>Importante:</strong> Tu ubicación actual quedará
+                  registrada aunque estés fuera del rango permitido.
+                </div>
+              )}
           </form>
 
           {dependencias.length === 0 && (
