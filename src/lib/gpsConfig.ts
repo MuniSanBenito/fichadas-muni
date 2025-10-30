@@ -1,0 +1,143 @@
+// Configuración de ubicaciones GPS y validación de cercanía
+
+export interface Ubicacion {
+  lat: number;
+  lng: number;
+  radius: number; // Radio en metros (~100m = 1 manzana)
+  nombre: string;
+}
+
+export const dependencias: Record<string, Ubicacion> = {
+  cic: {
+    lat: -31.771765084997554,
+    lng: -60.42306082350464,
+    radius: 100, // ~1 manzana en metros
+    nombre: "CIC"
+  },
+  nido: {
+    lat: -31.777360074698333,
+    lng: -60.43369446481205,
+    radius: 100, // ~1 manzana en metros
+    nombre: "NIDO"
+  }
+};
+
+/**
+ * Calcula la distancia entre dos puntos GPS usando la fórmula de Haversine
+ * @param lat1 Latitud del punto 1
+ * @param lng1 Longitud del punto 1
+ * @param lat2 Latitud del punto 2
+ * @param lng2 Longitud del punto 2
+ * @returns Distancia en metros
+ */
+export const calcularDistancia = (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number => {
+  const R = 6371000; // Radio de la Tierra en metros
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+/**
+ * Verifica si el usuario está dentro del radio permitido de una dependencia
+ */
+export const estaDentroDelRadio = (
+  posicionUsuario: { lat: number; lng: number },
+  dependencia: Ubicacion
+): {
+  dentroDelRadio: boolean;
+  distancia: number;
+  dependencia: string;
+} => {
+  const distancia = calcularDistancia(
+    posicionUsuario.lat,
+    posicionUsuario.lng,
+    dependencia.lat,
+    dependencia.lng
+  );
+  
+  return {
+    dentroDelRadio: distancia <= dependencia.radius,
+    distancia: Math.round(distancia),
+    dependencia: dependencia.nombre
+  };
+};
+
+/**
+ * Encuentra la dependencia más cercana a la ubicación del usuario
+ */
+export const encontrarDependenciaCercana = (
+  posicionUsuario: { lat: number; lng: number }
+): (Ubicacion & { distancia: number }) | null => {
+  let dependenciaMasCercana: (Ubicacion & { distancia: number }) | null = null;
+  let menorDistancia = Infinity;
+
+  Object.values(dependencias).forEach((dep) => {
+    const distancia = calcularDistancia(
+      posicionUsuario.lat,
+      posicionUsuario.lng,
+      dep.lat,
+      dep.lng
+    );
+    
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia;
+      dependenciaMasCercana = {
+        ...dep,
+        distancia: Math.round(distancia)
+      };
+    }
+  });
+
+  return dependenciaMasCercana;
+};
+
+/**
+ * Valida si el usuario puede fichar desde su ubicación actual
+ */
+export const validarUbicacionParaFichar = (
+  posicionUsuario: { lat: number; lng: number }
+): {
+  permitido: boolean;
+  mensaje: string;
+  dependenciaCercana: (Ubicacion & { distancia: number }) | null;
+} => {
+  const dependenciaCercana = encontrarDependenciaCercana(posicionUsuario);
+  
+  if (!dependenciaCercana) {
+    return {
+      permitido: false,
+      mensaje: 'No se encontró ninguna dependencia cercana',
+      dependenciaCercana: null
+    };
+  }
+
+  const validacion = estaDentroDelRadio(posicionUsuario, dependenciaCercana);
+
+  if (!validacion.dentroDelRadio) {
+    return {
+      permitido: false,
+      mensaje: `⚠️ Estás a ${validacion.distancia}m de ${validacion.dependencia}. Debes estar dentro de ${dependenciaCercana.radius}m para fichar.`,
+      dependenciaCercana
+    };
+  }
+
+  return {
+    permitido: true,
+    mensaje: `✓ Ubicación válida: ${validacion.dependencia} (${validacion.distancia}m)`,
+    dependenciaCercana
+  };
+};

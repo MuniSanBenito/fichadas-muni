@@ -1,99 +1,221 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import Camera from './Camera';
-import { supabase, type FichadaInsert, type Dependencia, type TipoFichada } from '@/lib/supabase';
-import { MapPin, CheckCircle, AlertCircle, Building2, LogIn, LogOut } from 'lucide-react';
+import { useState, useEffect } from "react";
+import Camera from "./Camera";
+import {
+  supabase,
+  type FichadaInsert,
+  type Dependencia,
+  type TipoFichada,
+} from "@/lib/supabase";
+import {
+  validarUbicacionParaFichar,
+  encontrarDependenciaCercana,
+} from "@/lib/gpsConfig";
+import {
+  MapPin,
+  CheckCircle,
+  AlertCircle,
+  Building2,
+  LogIn,
+  LogOut,
+} from "lucide-react";
 
 export default function FichadasForm() {
-  const [documento, setDocumento] = useState('');
+  const [documento, setDocumento] = useState("");
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string>('');
+  const [photoPreview, setPhotoPreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
-  const [tipoFichada, setTipoFichada] = useState<TipoFichada>('entrada');
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [tipoFichada, setTipoFichada] = useState<TipoFichada>("entrada");
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
+  const [locationValidation, setLocationValidation] = useState<{
+    permitido: boolean;
+    mensaje: string;
+  } | null>(null);
+  const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Función para solicitar ubicación GPS de forma insistente
+  const solicitarUbicacion = () => {
+    if (!navigator.geolocation) {
+      console.error("Geolocalización no disponible");
+      setError(
+        "⚠️ Tu navegador no soporta geolocalización. Por favor usa Chrome, Firefox o Safari."
+      );
+      setGpsPermissionDenied(true);
+      return;
+    }
+
+    console.log(`🔄 Solicitando ubicación GPS... (intento ${retryCount + 1})`);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.log("✅ Ubicación obtenida:", position.coords);
+        const userLocation = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        setLocation(userLocation);
+        setGpsPermissionDenied(false);
+        setError("");
+
+        // Validar ubicación
+        const validation = validarUbicacionParaFichar(userLocation);
+        setLocationValidation(validation);
+        console.log("📍 Validación GPS:", validation);
+
+        if (!validation.permitido) {
+          setError(validation.mensaje);
+        }
+      },
+      (err) => {
+        console.error(
+          "❌ Error obteniendo ubicación:",
+          err.message,
+          "Código:",
+          err.code
+        );
+
+        // err.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
+        if (err.code === 1) {
+          setGpsPermissionDenied(true);
+          setError(
+            "🚫 Necesitamos tu ubicación para verificar que estés en CIC o NIDO. " +
+              "Por favor, habilita los permisos de ubicación en tu navegador y presiona 'Reintentar GPS'."
+          );
+        } else if (err.code === 3) {
+          // Timeout - reintentar automáticamente
+          console.log(
+            "⏱️ Timeout - reintentando con configuración más flexible..."
+          );
+          setRetryCount((prev) => prev + 1);
+
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              console.log(
+                "✅ Ubicación obtenida (reintento):",
+                position.coords
+              );
+              const userLocation = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              };
+              setLocation(userLocation);
+              setGpsPermissionDenied(false);
+              setError("");
+
+              const validation = validarUbicacionParaFichar(userLocation);
+              setLocationValidation(validation);
+
+              if (!validation.permitido) {
+                setError(validation.mensaje);
+              }
+            },
+            (err2) => {
+              console.error(
+                "❌ Error final obteniendo ubicación:",
+                err2.message
+              );
+              setGpsPermissionDenied(true);
+              setError(
+                "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y " +
+                  "hayas dado permisos al navegador. Presiona 'Reintentar GPS' para volver a intentar."
+              );
+            },
+            {
+              enableHighAccuracy: false,
+              timeout: 15000,
+              maximumAge: 60000, // Aceptar ubicación de hasta 1 minuto atrás
+            }
+          );
+        } else {
+          setGpsPermissionDenied(true);
+          setError(
+            "⚠️ Error obteniendo ubicación GPS. Asegúrate de tener GPS activado y " +
+              "presiona 'Reintentar GPS'."
+          );
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   useEffect(() => {
     // Cargar todas las dependencias
     loadDependencias();
 
-    // Obtener ubicación
-    if (navigator.geolocation) {
-      console.log('Solicitando ubicación GPS...');
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          console.log('Ubicación obtenida:', position.coords);
-          setLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        (err) => {
-          console.error('Error obteniendo ubicación:', err.message);
-          // Intentar con timeout y maximumAge
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              console.log('Ubicación obtenida (segundo intento):', position.coords);
-              setLocation({
-                lat: position.coords.latitude,
-                lng: position.coords.longitude,
-              });
-            },
-            (err2) => {
-              console.error('Error final obteniendo ubicación:', err2.message);
-              setError('No se pudo obtener la ubicación. Continuá igual, es opcional.');
-              setTimeout(() => setError(''), 3000);
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 10000,
-              maximumAge: 0
-            }
-          );
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 5000,
-          maximumAge: 0
-        }
-      );
-    } else {
-      console.error('Geolocalización no disponible');
-      setError('Tu navegador no soporta geolocalización.');
-      setTimeout(() => setError(''), 3000);
-    }
+    // Solicitar ubicación al cargar
+    solicitarUbicacion();
+
+    // Reintentar cada 15 segundos si no tenemos ubicación
+    const intervalo = setInterval(() => {
+      if (!location && !gpsPermissionDenied) {
+        console.log("🔄 Reintentando obtener ubicación automáticamente...");
+        solicitarUbicacion();
+      }
+    }, 15000);
+
+    return () => clearInterval(intervalo);
   }, []);
 
   const loadDependencias = async () => {
     try {
       const { data, error } = await supabase
-        .from('dependencias')
-        .select('*')
-        .order('nombre');
+        .from("dependencias")
+        .select("*")
+        .order("nombre");
 
       if (error) throw error;
-      
+
       // Si no hay datos, usar dependencias de prueba
       if (!data || data.length === 0) {
         setDependencias([
-          { id: '00000000-0000-0000-0000-000000000001', nombre: 'CIC', codigo: 'INT-001', direccion: 'Calle Principal 123', created_at: new Date().toISOString() },
-          { id: '00000000-0000-0000-0000-000000000002', nombre: 'NIDO', codigo: 'OBR-001', direccion: 'Av. Trabajo 456', created_at: new Date().toISOString() },
-          { id: '00000000-0000-0000-0000-000000000003', nombre: 'Pañol', codigo: 'TRA-001', direccion: 'Ruta 9 km 2', created_at: new Date().toISOString() },
+          {
+            id: "001",
+            nombre: "CIC",
+            codigo: "INT-001",
+            direccion: "Calle Garay y Nogoya",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "002",
+            nombre: "NIDO",
+            codigo: "OBR-001",
+            direccion: "Calle Misiones y Buenos Aires",
+            created_at: new Date().toISOString(),
+          },
         ]);
       } else {
         setDependencias(data);
       }
     } catch (err) {
-      console.error('Error cargando dependencias:', err);
+      console.error("Error cargando dependencias:", err);
       // Si hay error, usar datos de prueba
       setDependencias([
-        { id: '00000000-0000-0000-0000-000000000001', nombre: 'CIC', codigo: 'INT-001', direccion: 'Calle Principal 123', created_at: new Date().toISOString() },
-        { id: '00000000-0000-0000-0000-000000000002', nombre: 'NIDO', codigo: 'OBR-001', direccion: 'Av. Trabajo 456', created_at: new Date().toISOString() },
-        { id: '00000000-0000-0000-0000-000000000003', nombre: 'Pañol', codigo: 'TRA-001', direccion: 'Ruta 9 km 2', created_at: new Date().toISOString() },
+        {
+          id: "001",
+          nombre: "CIC",
+          codigo: "INT-001",
+          direccion: "Calle Garay y Nogoya",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "002",
+          nombre: "NIDO",
+          codigo: "OBR-001",
+          direccion: "Calle Misiones y Buenos Aires",
+          created_at: new Date().toISOString(),
+        },
       ]);
     }
   };
@@ -105,40 +227,45 @@ export default function FichadasForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!documento) {
-      setError('Por favor ingresá tu DNI');
+      setError("Por favor ingresá tu DNI");
       return;
     }
 
     if (!dependencia) {
-      setError('Por favor seleccioná una dependencia');
+      setError("Por favor seleccioná una dependencia");
       return;
     }
 
     if (!photoBlob) {
-      setError('Por favor tomá una foto');
+      setError("Por favor tomá una foto");
       return;
     }
 
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
       // Subir foto a Supabase Storage
       const fileName = `${Date.now()}-${documento}.jpg`;
       const { error: uploadError } = await supabase.storage
-        .from('fotos-fichadas')
+        .from("fotos-fichadas")
         .upload(fileName, photoBlob);
 
       if (uploadError) throw uploadError;
 
       // Obtener URL pública de la foto
       const { data: urlData } = supabase.storage
-        .from('fotos-fichadas')
+        .from("fotos-fichadas")
         .getPublicUrl(fileName);
 
-      // Guardar fichada con ubicación (opcional)
+      // Obtener información de la dependencia cercana
+      const depCercana = location
+        ? encontrarDependenciaCercana(location)
+        : null;
+
+      // Guardar fichada con ubicación validada
       const fichadaData: FichadaInsert = {
         dependencia_id: dependencia.id,
         documento,
@@ -148,24 +275,24 @@ export default function FichadasForm() {
         longitud: location?.lng,
       };
 
-      console.log('Enviando fichada:', fichadaData);
+      console.log("Enviando fichada:", fichadaData);
 
       const { error: insertError } = await supabase
-        .from('fichadas')
+        .from("fichadas")
         .insert([fichadaData]);
 
       if (insertError) throw insertError;
 
       setSuccess(true);
-      setDocumento('');
+      setDocumento("");
       setPhotoBlob(null);
-      setPhotoPreview('');
+      setPhotoPreview("");
       setDependencia(null);
-      setTipoFichada('entrada');
-      
+      setTipoFichada("entrada");
+
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
-      setError('Error al registrar fichada. Intenta nuevamente.');
+      setError("Error al registrar fichada. Intenta nuevamente.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -213,14 +340,19 @@ export default function FichadasForm() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Documento */}
             <div>
-              <label htmlFor="documento" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label
+                htmlFor="documento"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+              >
                 Documento (DNI)
               </label>
               <input
                 type="text"
                 id="documento"
                 value={documento}
-                onChange={(e) => setDocumento(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) =>
+                  setDocumento(e.target.value.replace(/\D/g, ""))
+                }
                 placeholder="Ingrese su DNI"
                 maxLength={8}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
@@ -237,12 +369,12 @@ export default function FichadasForm() {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setTipoFichada('entrada')}
+                  onClick={() => setTipoFichada("entrada")}
                   disabled={loading}
                   className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
-                    tipoFichada === 'entrada'
-                      ? 'bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400'
-                      : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                    tipoFichada === "entrada"
+                      ? "bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400"
+                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                   }`}
                 >
                   <LogIn className="w-5 h-5" />
@@ -250,12 +382,12 @@ export default function FichadasForm() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTipoFichada('salida')}
+                  onClick={() => setTipoFichada("salida")}
                   disabled={loading}
                   className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
-                    tipoFichada === 'salida'
-                      ? 'bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400'
-                      : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300'
+                    tipoFichada === "salida"
+                      ? "bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400"
+                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                   }`}
                 >
                   <LogOut className="w-5 h-5" />
@@ -266,14 +398,19 @@ export default function FichadasForm() {
 
             {/* Selector de Dependencia */}
             <div>
-              <label htmlFor="dependencia" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label
+                htmlFor="dependencia"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+              >
                 Dependencia
               </label>
               <select
                 id="dependencia"
-                value={dependencia?.id || ''}
+                value={dependencia?.id || ""}
                 onChange={(e) => {
-                  const selected = dependencias.find(d => d.id === e.target.value);
+                  const selected = dependencias.find(
+                    (d) => d.id === e.target.value
+                  );
                   setDependencia(selected || null);
                 }}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
@@ -308,7 +445,7 @@ export default function FichadasForm() {
                     type="button"
                     onClick={() => {
                       setPhotoBlob(null);
-                      setPhotoPreview('');
+                      setPhotoPreview("");
                     }}
                     className="w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition"
                     disabled={loading}
@@ -320,24 +457,87 @@ export default function FichadasForm() {
             </div>
 
             {/* Location Status */}
-            <div className="flex items-center gap-2 text-sm">
-              {location ? (
-                <>
-                  <MapPin className="w-4 h-4 text-green-600" />
-                  <span className="text-green-600">✓ Ubicación capturada</span>
-                </>
+            <div className="space-y-3">
+              {location && locationValidation?.permitido ? (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded-lg p-3 flex items-start gap-2">
+                  <MapPin className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-green-700 dark:text-green-300 font-medium text-sm">
+                      ✓ Ubicación válida
+                    </p>
+                    <p className="text-green-600 dark:text-green-400 text-xs mt-1">
+                      {locationValidation.mensaje}
+                    </p>
+                  </div>
+                </div>
+              ) : location &&
+                locationValidation &&
+                !locationValidation.permitido ? (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-red-700 dark:text-red-300 font-medium text-sm">
+                      No estás cerca de ninguna dependencia
+                    </p>
+                    <p className="text-red-600 dark:text-red-400 text-xs mt-1">
+                      {locationValidation.mensaje}
+                    </p>
+                  </div>
+                </div>
+              ) : gpsPermissionDenied ? (
+                <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-lg p-3">
+                  <div className="flex items-start gap-2 mb-3">
+                    <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-orange-700 dark:text-orange-300 font-medium text-sm">
+                        ⚠️ Permisos de ubicación necesarios
+                      </p>
+                      <p className="text-orange-600 dark:text-orange-400 text-xs mt-1">
+                        Debes habilitar la ubicación para fichar. Asegúrate de:
+                      </p>
+                      <ul className="text-orange-600 dark:text-orange-400 text-xs mt-2 ml-4 list-disc space-y-1">
+                        <li>Tener GPS/ubicación activado en tu dispositivo</li>
+                        <li>
+                          Dar permisos de ubicación a este sitio en el navegador
+                        </li>
+                        <li>Estar en CIC o NIDO (a menos de 100m)</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGpsPermissionDenied(false);
+                      setError("");
+                      solicitarUbicacion();
+                    }}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm font-medium"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    Reintentar GPS
+                  </button>
+                </div>
               ) : (
-                <>
-                  <MapPin className="w-4 h-4 text-yellow-600" />
-                  <span className="text-yellow-600">⚠ Ubicación no disponible (opcional)</span>
-                </>
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg p-3 flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  <span className="text-blue-700 dark:text-blue-300 text-sm">
+                    Obteniendo ubicación GPS...
+                  </span>
+                </div>
               )}
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !dependencia || !documento || !photoBlob}
+              disabled={
+                loading ||
+                !dependencia ||
+                !documento ||
+                !photoBlob ||
+                !location ||
+                !!(locationValidation && !locationValidation.permitido)
+              }
               className="w-full bg-[#b6c544] hover:bg-[#9fb338] disabled:bg-gray-400 text-white font-medium py-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg shadow-lg hover:shadow-xl"
             >
               {loading ? (
@@ -346,16 +546,36 @@ export default function FichadasForm() {
                   Registrando fichada...
                 </>
               ) : (
-                'Registrar Fichada'
+                "Registrar Fichada"
               )}
             </button>
-            
+
             {/* Indicador de qué falta */}
-            {(!documento || !dependencia || !photoBlob) && (
-              <div className="text-sm text-gray-500 text-center">
-                {!documento && '⚠ Falta: DNI • '}
-                {!dependencia && '⚠ Falta: Dependencia • '}
-                {!photoBlob && '⚠ Falta: Foto'}
+            {(!documento ||
+              !dependencia ||
+              !photoBlob ||
+              !location ||
+              (locationValidation && !locationValidation.permitido)) && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
+                <div className="text-center">
+                  {!documento && "⚠ Falta: DNI • "}
+                  {!dependencia && "⚠ Falta: Dependencia • "}
+                  {!photoBlob && "⚠ Falta: Foto • "}
+                  {!location && "⚠ Falta: Ubicación GPS"}
+                </div>
+                {location &&
+                  locationValidation &&
+                  !locationValidation.permitido && (
+                    <div className="text-red-600 dark:text-red-400 font-medium text-center bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-200 dark:border-red-800">
+                      🚫 Debes estar en CIC o NIDO para fichar (máximo 100m de
+                      distancia)
+                    </div>
+                  )}
+                {gpsPermissionDenied && (
+                  <div className="text-orange-600 dark:text-orange-400 font-medium text-center bg-orange-50 dark:bg-orange-900/20 p-2 rounded border border-orange-200 dark:border-orange-800">
+                    📍 Habilita los permisos de ubicación para continuar
+                  </div>
+                )}
               </div>
             )}
           </form>
