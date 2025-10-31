@@ -1,14 +1,14 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
-import { supabase, type Fichada, type Dependencia } from '@/lib/supabase';
-import { 
-  Search, 
-  Download, 
-  Eye, 
-  Calendar, 
-  MapPin, 
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { supabase, type Fichada, type Dependencia } from "@/lib/supabase";
+import {
+  Search,
+  Download,
+  Eye,
+  Calendar,
+  MapPin,
   Building2,
   User,
   FileText,
@@ -18,8 +18,8 @@ import {
   AlertCircle,
   ArrowLeft,
   LogOut,
-  LogIn
-} from 'lucide-react';
+  LogIn,
+} from "lucide-react";
 
 interface FichadaConDependencia extends Fichada {
   dependencia?: Dependencia;
@@ -27,44 +27,49 @@ interface FichadaConDependencia extends Fichada {
 
 export default function AdminPanel() {
   const [fichadas, setFichadas] = useState<FichadaConDependencia[]>([]);
-  const [filteredFichadas, setFilteredFichadas] = useState<FichadaConDependencia[]>([]);
+  const [filteredFichadas, setFilteredFichadas] = useState<
+    FichadaConDependencia[]
+  >([]);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  
+  const [error, setError] = useState("");
+
   // Filtros
-  const [searchDni, setSearchDni] = useState('');
-  const [selectedDependencia, setSelectedDependencia] = useState('');
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  
+  const [searchDni, setSearchDni] = useState("");
+  const [selectedDependencia, setSelectedDependencia] = useState("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+
   // Modal para ver foto
-  const [selectedFichada, setSelectedFichada] = useState<FichadaConDependencia | null>(null);
+  const [selectedFichada, setSelectedFichada] =
+    useState<FichadaConDependencia | null>(null);
 
   const filterFichadas = useCallback(() => {
     let filtered = [...fichadas];
 
     // Filtrar por DNI
     if (searchDni) {
-      filtered = filtered.filter(f => f.documento.includes(searchDni));
+      filtered = filtered.filter((f) => f.documento.includes(searchDni));
     }
 
     // Filtrar por dependencia
     if (selectedDependencia) {
-      filtered = filtered.filter(f => f.dependencia_id === selectedDependencia);
+      filtered = filtered.filter(
+        (f) => f.dependencia_id === selectedDependencia
+      );
     }
 
     // Filtrar por fecha desde
     if (fechaDesde) {
       const desde = new Date(fechaDesde);
-      filtered = filtered.filter(f => new Date(f.fecha_hora) >= desde);
+      filtered = filtered.filter((f) => new Date(f.fecha_hora) >= desde);
     }
 
     // Filtrar por fecha hasta
     if (fechaHasta) {
       const hasta = new Date(fechaHasta);
       hasta.setHours(23, 59, 59, 999);
-      filtered = filtered.filter(f => new Date(f.fecha_hora) <= hasta);
+      filtered = filtered.filter((f) => new Date(f.fecha_hora) <= hasta);
     }
 
     setFilteredFichadas(filtered);
@@ -83,82 +88,152 @@ export default function AdminPanel() {
     try {
       // Cargar dependencias
       const { data: depData, error: depError } = await supabase
-        .from('dependencias')
-        .select('*')
-        .order('nombre');
+        .from("dependencias")
+        .select("*")
+        .order("nombre");
 
       if (depError) throw depError;
       setDependencias(depData || []);
 
       // Cargar fichadas
       const { data: fichadasData, error: fichadasError } = await supabase
-        .from('fichadas')
-        .select('*')
-        .order('fecha_hora', { ascending: false });
+        .from("fichadas")
+        .select("*")
+        .order("fecha_hora", { ascending: false });
 
       if (fichadasError) throw fichadasError;
 
       // Combinar fichadas con sus dependencias
-      const fichadasConDependencia = (fichadasData || []).map(fichada => ({
+      const fichadasConDependencia = (fichadasData || []).map((fichada) => ({
         ...fichada,
-        dependencia: depData?.find(d => d.id === fichada.dependencia_id)
+        dependencia: depData?.find((d) => d.id === fichada.dependencia_id),
       }));
 
       setFichadas(fichadasConDependencia);
     } catch (err) {
-      console.error('Error cargando datos:', err);
-      setError('Error al cargar los datos. Intente nuevamente.');
+      console.error("Error cargando datos:", err);
+      setError("Error al cargar los datos. Intente nuevamente.");
     } finally {
       setLoading(false);
     }
   };
 
-
   const exportToCSV = () => {
-    const headers = ['Fecha y Hora', 'DNI', 'Tipo', 'Dependencia', 'Ubicación'];
-    const rows = filteredFichadas.map(f => [
-      new Date(f.fecha_hora).toLocaleString('es-AR'),
+    const headers = ["Fecha y Hora", "DNI", "Tipo", "Dependencia", "Ubicación"];
+    const rows = filteredFichadas.map((f) => [
+      new Date(f.fecha_hora).toLocaleString("es-AR"),
       f.documento,
       f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1),
-      f.dependencia?.nombre || 'N/A',
-      f.latitud && f.longitud ? `${f.latitud}, ${f.longitud}` : 'No disponible'
+      f.dependencia?.nombre || "N/A",
+      f.latitud && f.longitud ? `${f.latitud}, ${f.longitud}` : "No disponible",
     ]);
 
     const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
+      headers.join(","),
+      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+    ].join("\n");
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `fichadas_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `fichadas_${new Date().toISOString().split("T")[0]}.csv`
+    );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportToTXT = () => {
+    /**
+     * Formato TXT de ancho fijo para sistema de fichadas
+     *
+     * Campo       | Desde | Hasta | Ancho | Ejemplo
+     * ------------|-------|-------|-------|----------
+     * DNI         | 1     | 9     | 9     | "36651182 "
+     * Espacio     | 10    | 10    | 1     | " "
+     * Día         | 11    | 12    | 2     | "30"
+     * Espacio     | 13    | 13    | 1     | " "
+     * Mes         | 14    | 15    | 2     | "10"
+     * Espacio     | 16    | 16    | 1     | " "
+     * Año         | 17    | 20    | 4     | "2025"
+     * Espacio     | 21    | 21    | 1     | " "
+     * Hora        | 22    | 23    | 2     | "12"
+     * Espacio     | 24    | 24    | 1     | " "
+     * Minutos     | 25    | 26    | 2     | "48"
+     * Espacio     | 27    | 27    | 1     | " "
+     * Tipo        | 28    | 35    | 8     | "Entrada" o "Salida "
+     *
+     * Ejemplo: "36651182  30 10 2025 12 48 Entrada "
+     */
+
+    const lines = filteredFichadas.map((f) => {
+      const fecha = new Date(f.fecha_hora);
+
+      // Extraer componentes de fecha/hora
+      const dia = fecha.getDate().toString().padStart(2, "0");
+      const mes = (fecha.getMonth() + 1).toString().padStart(2, "0");
+      const anio = fecha.getFullYear().toString();
+      const hora = fecha.getHours().toString().padStart(2, "0");
+      const minutos = fecha.getMinutes().toString().padStart(2, "0");
+
+      // DNI: 9 caracteres (rellenar con espacios a la derecha)
+      const dni = f.documento.padEnd(9, " ");
+
+      // Tipo: 8 caracteres (capitalizado, rellenar con espacios)
+      const tipo = (f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1)).padEnd(
+        8,
+        " "
+      );
+
+      // Construir línea según formato exacto
+      // DNI(9) + SP + Día(2) + SP + Mes(2) + SP + Año(4) + SP + Hora(2) + SP + Min(2) + SP + Tipo(8)
+      const linea = `${dni} ${dia} ${mes} ${anio} ${hora} ${minutos} ${tipo}`;
+
+      return linea;
+    });
+
+    const txtContent = lines.join("\n");
+
+    const blob = new Blob([txtContent], { type: "text/plain;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `fichadas_${new Date().toISOString().split("T")[0]}.txt`
+    );
+    link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const clearFilters = () => {
-    setSearchDni('');
-    setSelectedDependencia('');
-    setFechaDesde('');
-    setFechaHasta('');
+    setSearchDni("");
+    setSelectedDependencia("");
+    setFechaDesde("");
+    setFechaHasta("");
   };
 
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
     return {
-      date: date.toLocaleDateString('es-AR'),
-      time: date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+      date: date.toLocaleDateString("es-AR"),
+      time: date.toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     };
   };
 
   const handleLogout = async () => {
-    if (confirm('¿Está seguro que desea cerrar sesión?')) {
+    if (confirm("¿Está seguro que desea cerrar sesión?")) {
       await supabase.auth.signOut();
-      window.location.href = '/admin';
+      window.location.href = "/admin";
     }
   };
 
@@ -198,7 +273,9 @@ export default function AdminPanel() {
                 className="flex items-center gap-2 bg-[#b6c544] hover:bg-[#9fb338] text-white px-4 py-2 rounded-lg transition shadow-lg hover:shadow-xl"
                 disabled={loading}
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                />
                 Actualizar
               </button>
               <button
@@ -218,7 +295,9 @@ export default function AdminPanel() {
               <div className="flex items-center gap-3">
                 <User className="w-8 h-8 text-[#b6c544]" />
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Fichadas</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Total Fichadas
+                  </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
                     {filteredFichadas.length}
                   </p>
@@ -229,13 +308,19 @@ export default function AdminPanel() {
               <div className="flex items-center gap-3">
                 <Calendar className="w-8 h-8 text-green-600" />
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Hoy</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Hoy
+                  </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {filteredFichadas.filter(f => {
-                      const today = new Date();
-                      const fichadaDate = new Date(f.fecha_hora);
-                      return fichadaDate.toDateString() === today.toDateString();
-                    }).length}
+                    {
+                      filteredFichadas.filter((f) => {
+                        const today = new Date();
+                        const fichadaDate = new Date(f.fecha_hora);
+                        return (
+                          fichadaDate.toDateString() === today.toDateString()
+                        );
+                      }).length
+                    }
                   </p>
                 </div>
               </div>
@@ -244,7 +329,9 @@ export default function AdminPanel() {
               <div className="flex items-center gap-3">
                 <Building2 className="w-8 h-8 text-purple-600" />
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Dependencias</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Dependencias
+                  </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
                     {dependencias.length}
                   </p>
@@ -259,7 +346,9 @@ export default function AdminPanel() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Filtros</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Filtros
+              </h2>
             </div>
             <button
               onClick={clearFilters}
@@ -268,7 +357,7 @@ export default function AdminPanel() {
               Limpiar filtros
             </button>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* DNI */}
             <div>
@@ -279,7 +368,9 @@ export default function AdminPanel() {
               <input
                 type="text"
                 value={searchDni}
-                onChange={(e) => setSearchDni(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) =>
+                  setSearchDni(e.target.value.replace(/\D/g, ""))
+                }
                 placeholder="Buscar por DNI"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
               />
@@ -334,8 +425,17 @@ export default function AdminPanel() {
             </div>
           </div>
 
-          {/* Botón de exportación */}
-          <div className="mt-4 flex justify-end">
+          {/* Botones de exportación */}
+          <div className="mt-4 flex flex-wrap gap-3 justify-end">
+            <button
+              onClick={exportToTXT}
+              disabled={filteredFichadas.length === 0}
+              className="flex items-center gap-2 bg-[#b6c544] hover:bg-[#9fb338] disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition shadow-lg hover:shadow-xl"
+              title="Exportar en formato TXT de ancho fijo para cargar en el sistema"
+            >
+              <FileText className="w-4 h-4" />
+              Exportar TXT Sistema ({filteredFichadas.length} registros)
+            </button>
             <button
               onClick={exportToCSV}
               disabled={filteredFichadas.length === 0}
@@ -361,12 +461,16 @@ export default function AdminPanel() {
             {loading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#b6c544] mx-auto mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">Cargando fichadas...</p>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Cargando fichadas...
+                </p>
               </div>
             ) : filteredFichadas.length === 0 ? (
               <div className="text-center py-12">
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-400">No se encontraron fichadas</p>
+                <p className="text-gray-600 dark:text-gray-400">
+                  No se encontraron fichadas
+                </p>
               </div>
             ) : (
               <table className="w-full">
@@ -396,7 +500,10 @@ export default function AdminPanel() {
                   {filteredFichadas.map((fichada) => {
                     const { date, time } = formatDateTime(fichada.fecha_hora);
                     return (
-                      <tr key={fichada.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <tr
+                        key={fichada.id}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-gray-400" />
@@ -419,15 +526,21 @@ export default function AdminPanel() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
-                            fichada.tipo === 'entrada'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                          }`}>
-                            {fichada.tipo === 'entrada' ? (
-                              <><LogIn className="w-3 h-3" /> Entrada</>
+                          <span
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${
+                              fichada.tipo === "entrada"
+                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                            }`}
+                          >
+                            {fichada.tipo === "entrada" ? (
+                              <>
+                                <LogIn className="w-3 h-3" /> Entrada
+                              </>
                             ) : (
-                              <><LogOut className="w-3 h-3" /> Salida</>
+                              <>
+                                <LogOut className="w-3 h-3" /> Salida
+                              </>
                             )}
                           </span>
                         </td>
@@ -435,7 +548,7 @@ export default function AdminPanel() {
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4 text-gray-400" />
                             <span className="text-sm text-gray-900 dark:text-white">
-                              {fichada.dependencia?.nombre || 'N/A'}
+                              {fichada.dependencia?.nombre || "N/A"}
                             </span>
                           </div>
                         </td>
@@ -451,7 +564,9 @@ export default function AdminPanel() {
                               <span className="text-sm">Ver mapa</span>
                             </a>
                           ) : (
-                            <span className="text-sm text-gray-400">No disponible</span>
+                            <span className="text-sm text-gray-400">
+                              No disponible
+                            </span>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -464,7 +579,9 @@ export default function AdminPanel() {
                               <span className="text-sm">Ver foto</span>
                             </button>
                           ) : (
-                            <span className="text-sm text-gray-400">Sin foto</span>
+                            <span className="text-sm text-gray-400">
+                              Sin foto
+                            </span>
                           )}
                         </td>
                       </tr>
@@ -508,66 +625,80 @@ export default function AdminPanel() {
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              
+
               <div className="p-6 space-y-6">
                 {/* Información en tarjetas */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                   <div className="bg-[#f0f9e6] dark:bg-[#b6c544]/20 p-4 rounded-2xl border border-[#b6c544]/30 dark:border-[#b6c544]/50">
                     <div className="flex items-center gap-2 mb-1">
                       <User className="w-4 h-4 text-[#076633] dark:text-[#b6c544]" />
-                      <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">DNI</span>
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">
+                        DNI
+                      </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {selectedFichada.documento}
                     </p>
                   </div>
 
-                  <div className={`p-4 rounded-2xl border ${
-                    selectedFichada.tipo === 'entrada'
-                      ? 'bg-green-50 dark:bg-green-900/20 border-green-500/30 dark:border-green-500/50'
-                      : 'bg-orange-50 dark:bg-orange-900/20 border-orange-500/30 dark:border-orange-500/50'
-                  }`}>
+                  <div
+                    className={`p-4 rounded-2xl border ${
+                      selectedFichada.tipo === "entrada"
+                        ? "bg-green-50 dark:bg-green-900/20 border-green-500/30 dark:border-green-500/50"
+                        : "bg-orange-50 dark:bg-orange-900/20 border-orange-500/30 dark:border-orange-500/50"
+                    }`}
+                  >
                     <div className="flex items-center gap-2 mb-1">
-                      {selectedFichada.tipo === 'entrada' ? (
+                      {selectedFichada.tipo === "entrada" ? (
                         <LogIn className="w-4 h-4 text-green-600 dark:text-green-400" />
                       ) : (
                         <LogOut className="w-4 h-4 text-orange-600 dark:text-orange-400" />
                       )}
-                      <span className={`text-xs font-medium uppercase ${
-                        selectedFichada.tipo === 'entrada'
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-orange-600 dark:text-orange-400'
-                      }`}>Tipo</span>
+                      <span
+                        className={`text-xs font-medium uppercase ${
+                          selectedFichada.tipo === "entrada"
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-orange-600 dark:text-orange-400"
+                        }`}
+                      >
+                        Tipo
+                      </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white capitalize">
                       {selectedFichada.tipo}
                     </p>
                   </div>
-                  
+
                   <div className="bg-[#7bcbe2]/10 dark:bg-[#7bcbe2]/20 p-4 rounded-2xl border border-[#7bcbe2]/30 dark:border-[#7bcbe2]/50">
                     <div className="flex items-center gap-2 mb-1">
                       <Building2 className="w-4 h-4 text-[#7bcbe2] dark:text-[#7bcbe2]" />
-                      <span className="text-xs font-medium text-[#076633] dark:text-[#7bcbe2] uppercase">Dependencia</span>
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#7bcbe2] uppercase">
+                        Dependencia
+                      </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
-                      {selectedFichada.dependencia?.nombre || 'N/A'}
+                      {selectedFichada.dependencia?.nombre || "N/A"}
                     </p>
                   </div>
-                  
+
                   <div className="bg-[#b6c544]/10 dark:bg-[#b6c544]/20 p-4 rounded-2xl border border-[#b6c544]/30 dark:border-[#b6c544]/50">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-4 h-4 text-[#076633] dark:text-[#b6c544]" />
-                      <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">Fecha</span>
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#b6c544] uppercase">
+                        Fecha
+                      </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {formatDateTime(selectedFichada.fecha_hora).date}
                     </p>
                   </div>
-                  
+
                   <div className="bg-[#fbd300]/10 dark:bg-[#fbd300]/20 p-4 rounded-2xl border border-[#fbd300]/30 dark:border-[#fbd300]/50">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-4 h-4 text-[#076633] dark:text-[#fbd300]" />
-                      <span className="text-xs font-medium text-[#076633] dark:text-[#fbd300] uppercase">Hora</span>
+                      <span className="text-xs font-medium text-[#076633] dark:text-[#fbd300] uppercase">
+                        Hora
+                      </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
                       {formatDateTime(selectedFichada.fecha_hora).time}
@@ -613,9 +744,12 @@ export default function AdminPanel() {
                           <MapPin className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                          <h4 className="font-semibold text-gray-900 dark:text-white">Ubicación GPS</h4>
+                          <h4 className="font-semibold text-gray-900 dark:text-white">
+                            Ubicación GPS
+                          </h4>
                           <p className="text-sm text-gray-600 dark:text-gray-300">
-                            {selectedFichada.latitud.toFixed(6)}, {selectedFichada.longitud.toFixed(6)}
+                            {selectedFichada.latitud.toFixed(6)},{" "}
+                            {selectedFichada.longitud.toFixed(6)}
                           </p>
                         </div>
                       </div>
