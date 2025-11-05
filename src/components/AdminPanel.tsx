@@ -149,25 +149,24 @@ export default function AdminPanel() {
 
   const exportToTXT = () => {
     /**
-     * Formato TXT de ancho fijo para sistema de fichadas
+     * Formato TXT de ancho fijo para sistema SIGEM
+     * Total: 26 caracteres por línea
      *
      * Campo       | Desde | Hasta | Ancho | Ejemplo
      * ------------|-------|-------|-------|----------
      * DNI         | 1     | 9     | 9     | "36651182 "
      * Espacio     | 10    | 10    | 1     | " "
-     * Día         | 11    | 12    | 2     | "30"
+     * Día         | 11    | 12    | 2     | "11"
      * Espacio     | 13    | 13    | 1     | " "
-     * Mes         | 14    | 15    | 2     | "10"
+     * Mes         | 14    | 15    | 2     | "03"
      * Espacio     | 16    | 16    | 1     | " "
      * Año         | 17    | 20    | 4     | "2025"
      * Espacio     | 21    | 21    | 1     | " "
-     * Hora        | 22    | 23    | 2     | "12"
+     * Hora        | 22    | 23    | 2     | "09"
      * Espacio     | 24    | 24    | 1     | " "
-     * Minutos     | 25    | 26    | 2     | "48"
-     * Espacio     | 27    | 27    | 1     | " "
-     * Tipo        | 28    | 35    | 8     | "Entrada" o "Salida "
+     * Minutos     | 25    | 26    | 2     | "02"
      *
-     * Ejemplo: "36651182  30 10 2025 12 48 Entrada "
+     * Ejemplo: "36651182  11 03 2025 09 02"
      */
 
     const lines = filteredFichadas.map((f) => {
@@ -183,15 +182,9 @@ export default function AdminPanel() {
       // DNI: 9 caracteres (rellenar con espacios a la derecha)
       const dni = f.documento.padEnd(9, " ");
 
-      // Tipo: 8 caracteres (capitalizado, rellenar con espacios)
-      const tipo = (f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1)).padEnd(
-        8,
-        " "
-      );
-
-      // Construir línea según formato exacto
-      // DNI(9) + SP + Día(2) + SP + Mes(2) + SP + Año(4) + SP + Hora(2) + SP + Min(2) + SP + Tipo(8)
-      const linea = `${dni} ${dia} ${mes} ${anio} ${hora} ${minutos} ${tipo}`;
+      // Construir línea según formato exacto (26 caracteres)
+      // DNI(9) + SP + Día(2) + SP + Mes(2) + SP + Año(4) + SP + Hora(2) + SP + Min(2)
+      const linea = `${dni} ${dia} ${mes} ${anio} ${hora} ${minutos}`;
 
       return linea;
     });
