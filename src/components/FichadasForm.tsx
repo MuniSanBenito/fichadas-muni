@@ -8,10 +8,7 @@ import {
   type Dependencia,
   type TipoFichada,
 } from "@/lib/supabase";
-import {
-  validarUbicacionParaFichar,
-  encontrarDependenciaCercana,
-} from "@/lib/gpsConfig";
+import { validarUbicacionParaFichar } from "@/lib/gpsConfig";
 import {
   sanitizeDNI,
   isValidDNI,
@@ -46,37 +43,6 @@ export default function FichadasForm() {
   } | null>(null);
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-
-  // Caché de dependencias en sessionStorage
-  const loadDependenciasFromCache = (): Dependencia[] | null => {
-    try {
-      const cached = sessionStorage.getItem("dependencias_cache");
-      if (cached) {
-        const { data, timestamp } = JSON.parse(cached);
-        // Caché válido por 1 hora
-        if (Date.now() - timestamp < 3600000) {
-          return data;
-        }
-      }
-    } catch (err) {
-      logger.error("Error leyendo caché:", err);
-    }
-    return null;
-  };
-
-  const saveDependenciasToCache = (data: Dependencia[]) => {
-    try {
-      sessionStorage.setItem(
-        "dependencias_cache",
-        JSON.stringify({
-          data,
-          timestamp: Date.now(),
-        })
-      );
-    } catch (err) {
-      logger.error("Error guardando caché:", err);
-    }
-  };
 
   // Función para solicitar ubicación GPS de forma insistente
   const solicitarUbicacion = () => {
@@ -203,6 +169,7 @@ export default function FichadasForm() {
     }, 15000);
 
     return () => clearInterval(intervalo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDependencias = async () => {

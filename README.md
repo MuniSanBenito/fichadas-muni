@@ -75,6 +75,12 @@ Abrí [http://localhost:3000](http://localhost:3000) en tu navegador.
 
 La ubicación y hora se registran automáticamente.
 
+### 🔄 Actualización de PWA
+
+La aplicación se actualiza automáticamente cuando hay nuevas versiones. Cuando veas un banner verde que dice **"Nueva versión disponible"**, hacé click en **"Actualizar"** para obtener las últimas mejoras.
+
+**Para desarrolladores**: Ver [`ACTUALIZACION_PWA.md`](./ACTUALIZACION_PWA.md) para instrucciones completas sobre cómo publicar actualizaciones.
+
 ### Para Recursos Humanos
 
 **Panel de Administración** (`/admin`) - 🔐 **Protegido con Login**:

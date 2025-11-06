@@ -26,10 +26,29 @@ export const isValidDNI = (dni: string): boolean => {
 // ==========================================
 
 /**
+ * Type guard para errores con código
+ */
+interface ErrorWithCode {
+  code?: string;
+  message?: string;
+}
+
+/**
+ * Type guard para verificar si un error tiene código
+ */
+function isErrorWithCode(error: unknown): error is ErrorWithCode {
+  return typeof error === 'object' && error !== null && ('code' in error || 'message' in error);
+}
+
+/**
  * Convierte errores de Supabase en mensajes amigables
  */
-export const handleSupabaseError = (error: any): string => {
+export const handleSupabaseError = (error: unknown): string => {
   if (!error) return "Error desconocido";
+
+  if (!isErrorWithCode(error)) {
+    return "Error al procesar la solicitud. Intenta nuevamente.";
+  }
 
   // Errores de base de datos PostgreSQL
   if (error.code) {
@@ -203,17 +222,17 @@ export const getThisMonthRange = (): { desde: string; hasta: string } => {
  * Logger que solo funciona en desarrollo
  */
 export const logger = {
-  log: (...args: any[]) => {
+  log: (...args: unknown[]) => {
     if (process.env.NODE_ENV === "development") {
       console.log(...args);
     }
   },
-  error: (...args: any[]) => {
+  error: (...args: unknown[]) => {
     if (process.env.NODE_ENV === "development") {
       console.error(...args);
     }
   },
-  warn: (...args: any[]) => {
+  warn: (...args: unknown[]) => {
     if (process.env.NODE_ENV === "development") {
       console.warn(...args);
     }
