@@ -12,6 +12,7 @@ const path = require("path");
 const readline = require("readline");
 
 const SW_PATH = path.join(__dirname, "public", "sw.js");
+const VERSION_PATH = path.join(__dirname, "src", "lib", "version.ts");
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -47,6 +48,7 @@ function incrementVersion(version, type = "patch") {
 }
 
 function updateVersion(newVersion) {
+  // Actualizar sw.js
   let swContent = fs.readFileSync(SW_PATH, "utf8");
   swContent = swContent.replace(
     /const VERSION = ['"][^'"]+['"]/,
@@ -54,6 +56,20 @@ function updateVersion(newVersion) {
   );
   fs.writeFileSync(SW_PATH, swContent, "utf8");
   console.log(`✅ Versión actualizada a ${newVersion} en ${SW_PATH}`);
+
+  // Actualizar version.ts
+  const today = new Date().toISOString().split("T")[0];
+  let versionContent = fs.readFileSync(VERSION_PATH, "utf8");
+  versionContent = versionContent.replace(
+    /export const APP_VERSION = ['"][^'"]+['"]/,
+    `export const APP_VERSION = '${newVersion}'`
+  );
+  versionContent = versionContent.replace(
+    /export const BUILD_DATE = ['"][^'"]+['"]/,
+    `export const BUILD_DATE = '${today}'`
+  );
+  fs.writeFileSync(VERSION_PATH, versionContent, "utf8");
+  console.log(`✅ Versión actualizada a ${newVersion} en ${VERSION_PATH}`);
 }
 
 function main() {

@@ -15,6 +15,7 @@ import {
   handleSupabaseError,
   logger,
 } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
 import {
   MapPin,
   CheckCircle,
@@ -569,6 +570,9 @@ export default function FichadasForm() {
           >
             Acceso Recursos Humanos →
           </a>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+            v{APP_VERSION}
+          </p>
         </div>
       </div>
     </div>

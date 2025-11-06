@@ -1,5 +1,5 @@
 // IMPORTANTE: Incrementar este número cada vez que actualices la PWA
-const VERSION = "1.0.2";
+const VERSION = "1.1.0";
 const CACHE_NAME = `fichadas-muni-v${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
 
