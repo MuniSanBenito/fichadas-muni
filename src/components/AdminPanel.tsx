@@ -4,6 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { supabase, type Fichada, type Dependencia } from "@/lib/supabase";
 import {
+  handleSupabaseError,
+  getTodayRange,
+  getThisWeekRange,
+  getThisMonthRange,
+  logger,
+} from "@/lib/utils";
+import { calcularDistancia } from "@/lib/gpsConfig";
+import LoadingSpinner from "./LoadingSpinner";
+import {
   Search,
   Download,
   Eye,
@@ -19,6 +28,10 @@ import {
   ArrowLeft,
   LogOut,
   LogIn,
+  ChevronLeft,
+  ChevronRight,
+  MapPinOff,
+  CheckCircle2,
 } from "lucide-react";
 
 interface FichadaConDependencia extends Fichada {
@@ -34,9 +47,18 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const ITEMS_PER_PAGE = 50;
+
   // Filtros
   const [searchDni, setSearchDni] = useState("");
   const [selectedDependencia, setSelectedDependencia] = useState("");
+  const [selectedTipoFichada, setSelectedTipoFichada] = useState<
+    "" | "entrada" | "salida"
+  >("");
+  const [soloFueraDeRango, setSoloFueraDeRango] = useState(false);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
 
@@ -59,6 +81,19 @@ export default function AdminPanel() {
       );
     }
 
+    // Filtrar por tipo de fichada
+    if (selectedTipoFichada) {
+      filtered = filtered.filter((f) => f.tipo === selectedTipoFichada);
+    }
+
+    // Filtrar solo fichadas fuera de rango
+    if (soloFueraDeRango) {
+      filtered = filtered.filter((f) => {
+        const distanciaInfo = calcularDistanciaDependencia(f);
+        return distanciaInfo && !distanciaInfo.valida;
+      });
+    }
+
     // Filtrar por fecha desde
     if (fechaDesde) {
       const desde = new Date(fechaDesde);
@@ -73,7 +108,15 @@ export default function AdminPanel() {
     }
 
     setFilteredFichadas(filtered);
-  }, [fichadas, searchDni, selectedDependencia, fechaDesde, fechaHasta]);
+  }, [
+    fichadas,
+    searchDni,
+    selectedDependencia,
+    selectedTipoFichada,
+    soloFueraDeRango,
+    fechaDesde,
+    fechaHasta,
+  ]);
 
   useEffect(() => {
     loadData();
@@ -95,13 +138,24 @@ export default function AdminPanel() {
       if (depError) throw depError;
       setDependencias(depData || []);
 
-      // Cargar fichadas
-      const { data: fichadasData, error: fichadasError } = await supabase
+      // Cargar fichadas con paginación
+      const from = (currentPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+
+      const {
+        data: fichadasData,
+        error: fichadasError,
+        count,
+      } = await supabase
         .from("fichadas")
-        .select("*")
-        .order("fecha_hora", { ascending: false });
+        .select("*", { count: "exact" })
+        .order("fecha_hora", { ascending: false })
+        .range(from, to);
 
       if (fichadasError) throw fichadasError;
+
+      // Actualizar el conteo total
+      setTotalCount(count || 0);
 
       // Combinar fichadas con sus dependencias
       const fichadasConDependencia = (fichadasData || []).map((fichada) => ({
@@ -111,8 +165,8 @@ export default function AdminPanel() {
 
       setFichadas(fichadasConDependencia);
     } catch (err) {
-      console.error("Error cargando datos:", err);
-      setError("Error al cargar los datos. Intente nuevamente.");
+      logger.error("Error cargando datos:", err);
+      setError(handleSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -208,8 +262,27 @@ export default function AdminPanel() {
   const clearFilters = () => {
     setSearchDni("");
     setSelectedDependencia("");
+    setSelectedTipoFichada("");
+    setSoloFueraDeRango(false);
     setFechaDesde("");
     setFechaHasta("");
+  };
+
+  const setQuickFilter = (filterType: "hoy" | "semana" | "mes") => {
+    let range;
+    switch (filterType) {
+      case "hoy":
+        range = getTodayRange();
+        break;
+      case "semana":
+        range = getThisWeekRange();
+        break;
+      case "mes":
+        range = getThisMonthRange();
+        break;
+    }
+    setFechaDesde(range.desde);
+    setFechaHasta(range.hasta);
   };
 
   const formatDateTime = (dateString: string) => {
@@ -220,6 +293,32 @@ export default function AdminPanel() {
         hour: "2-digit",
         minute: "2-digit",
       }),
+    };
+  };
+
+  const calcularDistanciaDependencia = (
+    fichada: FichadaConDependencia
+  ): { distancia: number; valida: boolean } | null => {
+    if (
+      !fichada.latitud ||
+      !fichada.longitud ||
+      !fichada.dependencia?.latitud ||
+      !fichada.dependencia?.longitud
+    ) {
+      return null;
+    }
+
+    const distancia = calcularDistancia(
+      fichada.latitud,
+      fichada.longitud,
+      fichada.dependencia.latitud,
+      fichada.dependencia.longitud
+    );
+
+    const radioPermitido = fichada.dependencia.radio_metros || 100;
+    return {
+      distancia: Math.round(distancia),
+      valida: distancia <= radioPermitido,
     };
   };
 
@@ -283,7 +382,7 @@ export default function AdminPanel() {
           </div>
 
           {/* Estadísticas */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#f0f9e6] dark:bg-gray-700 p-4 rounded-lg">
               <div className="flex items-center gap-3">
                 <User className="w-8 h-8 text-[#b6c544]" />
@@ -299,21 +398,29 @@ export default function AdminPanel() {
             </div>
             <div className="bg-green-50 dark:bg-gray-700 p-4 rounded-lg">
               <div className="flex items-center gap-3">
-                <Calendar className="w-8 h-8 text-green-600" />
+                <LogIn className="w-8 h-8 text-green-600" />
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Hoy
+                    Entradas
                   </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
                     {
-                      filteredFichadas.filter((f) => {
-                        const today = new Date();
-                        const fichadaDate = new Date(f.fecha_hora);
-                        return (
-                          fichadaDate.toDateString() === today.toDateString()
-                        );
-                      }).length
+                      filteredFichadas.filter((f) => f.tipo === "entrada")
+                        .length
                     }
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-orange-50 dark:bg-gray-700 p-4 rounded-lg">
+              <div className="flex items-center gap-3">
+                <LogOut className="w-8 h-8 text-orange-600" />
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Salidas
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {filteredFichadas.filter((f) => f.tipo === "salida").length}
                   </p>
                 </div>
               </div>
@@ -345,13 +452,14 @@ export default function AdminPanel() {
             </div>
             <button
               onClick={clearFilters}
-              className="text-sm text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg transition font-medium"
             >
+              <X className="w-4 h-4" />
               Limpiar filtros
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* DNI */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -389,6 +497,27 @@ export default function AdminPanel() {
               </select>
             </div>
 
+            {/* Tipo de Fichada */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Filter className="w-4 h-4 inline mr-1" />
+                Tipo
+              </label>
+              <select
+                value={selectedTipoFichada}
+                onChange={(e) =>
+                  setSelectedTipoFichada(
+                    e.target.value as "" | "entrada" | "salida"
+                  )
+                }
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">Todos</option>
+                <option value="entrada">Entrada</option>
+                <option value="salida">Salida</option>
+              </select>
+            </div>
+
             {/* Fecha Desde */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -416,6 +545,44 @@ export default function AdminPanel() {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
               />
             </div>
+          </div>
+
+          {/* Filtros rápidos */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setQuickFilter("hoy")}
+              className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg transition"
+            >
+              Hoy
+            </button>
+            <button
+              onClick={() => setQuickFilter("semana")}
+              className="px-3 py-1.5 text-sm bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-lg transition"
+            >
+              Esta semana
+            </button>
+            <button
+              onClick={() => setQuickFilter("mes")}
+              className="px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg transition"
+            >
+              Este mes
+            </button>
+          </div>
+
+          {/* Filtro GPS */}
+          <div className="mt-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={soloFueraDeRango}
+                onChange={(e) => setSoloFueraDeRango(e.target.checked)}
+                className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 rounded focus:ring-orange-500 dark:focus:ring-orange-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                <MapPinOff className="w-4 h-4 text-orange-600" />
+                Solo fichadas fuera de rango GPS
+              </span>
+            </label>
           </div>
 
           {/* Botones de exportación */}
@@ -452,12 +619,7 @@ export default function AdminPanel() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
           <div className="overflow-x-auto">
             {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#b6c544] mx-auto mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Cargando fichadas...
-                </p>
-              </div>
+              <LoadingSpinner message="Cargando fichadas..." />
             ) : filteredFichadas.length === 0 ? (
               <div className="text-center py-12">
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -469,6 +631,9 @@ export default function AdminPanel() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Foto
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Fecha y Hora
                     </th>
@@ -482,21 +647,46 @@ export default function AdminPanel() {
                       Dependencia
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Ubicación
+                      GPS
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Foto
+                      Acciones
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredFichadas.map((fichada) => {
                     const { date, time } = formatDateTime(fichada.fecha_hora);
+                    const distanciaInfo = calcularDistanciaDependencia(fichada);
                     return (
                       <tr
                         key={fichada.id}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
+                        {/* Columna FOTO - MINIATURA */}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {fichada.foto_url ? (
+                            <button
+                              onClick={() => setSelectedFichada(fichada)}
+                              className="group relative"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={fichada.foto_url}
+                                alt="Miniatura"
+                                className="w-16 h-16 object-cover rounded-lg border-2 border-gray-200 dark:border-gray-600 group-hover:border-[#b6c544] transition-all cursor-pointer shadow-sm group-hover:shadow-md"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 rounded-lg transition-all">
+                                <Eye className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                              <X className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                        </td>
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-gray-400" />
@@ -545,37 +735,75 @@ export default function AdminPanel() {
                             </span>
                           </div>
                         </td>
+
+                        {/* Columna GPS - VALIDACIÓN */}
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {fichada.latitud && fichada.longitud ? (
-                            <a
-                              href={`https://www.google.com/maps?q=${fichada.latitud},${fichada.longitud}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
-                            >
-                              <MapPin className="w-4 h-4" />
-                              <span className="text-sm">Ver mapa</span>
-                            </a>
+                          {distanciaInfo ? (
+                            <div className="flex items-center gap-2">
+                              {distanciaInfo.valida ? (
+                                <>
+                                  <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                  <div>
+                                    <div className="text-xs font-medium text-green-700 dark:text-green-400">
+                                      ✓ Válida
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      {distanciaInfo.distancia}m
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                                  <div>
+                                    <div className="text-xs font-medium text-orange-700 dark:text-orange-400">
+                                      ⚠ Fuera de rango
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      {distanciaInfo.distancia}m
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ) : fichada.latitud && fichada.longitud ? (
+                            <div className="flex items-center gap-2">
+                              <MapPinOff className="w-4 h-4 text-gray-400" />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                Sin validar
+                              </span>
+                            </div>
                           ) : (
-                            <span className="text-sm text-gray-400">
-                              No disponible
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <MapPinOff className="w-4 h-4 text-gray-400" />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                Sin GPS
+                              </span>
+                            </div>
                           )}
                         </td>
+
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {fichada.foto_url ? (
+                          <div className="flex items-center gap-2">
+                            {fichada.latitud && fichada.longitud && (
+                              <a
+                                href={`https://www.google.com/maps?q=${fichada.latitud},${fichada.longitud}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
+                                title="Ver en Google Maps"
+                              >
+                                <MapPin className="w-4 h-4" />
+                              </a>
+                            )}
                             <button
                               onClick={() => setSelectedFichada(fichada)}
-                              className="flex items-center gap-2 text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
+                              className="text-[#076633] hover:text-[#054d26] dark:text-[#b6c544] font-medium"
+                              title="Ver detalles"
                             >
                               <Eye className="w-4 h-4" />
-                              <span className="text-sm">Ver foto</span>
                             </button>
-                          ) : (
-                            <span className="text-sm text-gray-400">
-                              Sin foto
-                            </span>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -584,6 +812,88 @@ export default function AdminPanel() {
               </table>
             )}
           </div>
+
+          {/* Paginación */}
+          {!loading && totalCount > ITEMS_PER_PAGE && (
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(prev - 1, 1))
+                  }
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() =>
+                    setCurrentPage((prev) =>
+                      Math.min(prev + 1, Math.ceil(totalCount / ITEMS_PER_PAGE))
+                    )
+                  }
+                  disabled={
+                    currentPage === Math.ceil(totalCount / ITEMS_PER_PAGE)
+                  }
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Siguiente
+                </button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    Mostrando{" "}
+                    <span className="font-medium">
+                      {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                    </span>{" "}
+                    a{" "}
+                    <span className="font-medium">
+                      {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)}
+                    </span>{" "}
+                    de <span className="font-medium">{totalCount}</span>{" "}
+                    resultados
+                  </p>
+                </div>
+                <div>
+                  <nav
+                    className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
+                    aria-label="Pagination"
+                  >
+                    <button
+                      onClick={() =>
+                        setCurrentPage((prev) => Math.max(prev - 1, 1))
+                      }
+                      disabled={currentPage === 1}
+                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Página {currentPage} de{" "}
+                      {Math.ceil(totalCount / ITEMS_PER_PAGE)}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setCurrentPage((prev) =>
+                          Math.min(
+                            prev + 1,
+                            Math.ceil(totalCount / ITEMS_PER_PAGE)
+                          )
+                        )
+                      }
+                      disabled={
+                        currentPage === Math.ceil(totalCount / ITEMS_PER_PAGE)
+                      }
+                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal para ver foto - Versión mejorada */}
@@ -722,6 +1032,7 @@ export default function AdminPanel() {
                       <img
                         src={selectedFichada.foto_url}
                         alt="Foto de fichada"
+                        loading="lazy"
                         className="w-full h-auto object-contain max-h-[500px] transition-transform duration-300 group-hover:scale-105"
                       />
                     </div>

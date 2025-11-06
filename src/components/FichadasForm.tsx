@@ -13,6 +13,12 @@ import {
   encontrarDependenciaCercana,
 } from "@/lib/gpsConfig";
 import {
+  sanitizeDNI,
+  isValidDNI,
+  handleSupabaseError,
+  logger,
+} from "@/lib/utils";
+import {
   MapPin,
   CheckCircle,
   AlertCircle,
@@ -41,10 +47,41 @@ export default function FichadasForm() {
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
+  // Caché de dependencias en sessionStorage
+  const loadDependenciasFromCache = (): Dependencia[] | null => {
+    try {
+      const cached = sessionStorage.getItem("dependencias_cache");
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        // Caché válido por 1 hora
+        if (Date.now() - timestamp < 3600000) {
+          return data;
+        }
+      }
+    } catch (err) {
+      logger.error("Error leyendo caché:", err);
+    }
+    return null;
+  };
+
+  const saveDependenciasToCache = (data: Dependencia[]) => {
+    try {
+      sessionStorage.setItem(
+        "dependencias_cache",
+        JSON.stringify({
+          data,
+          timestamp: Date.now(),
+        })
+      );
+    } catch (err) {
+      logger.error("Error guardando caché:", err);
+    }
+  };
+
   // Función para solicitar ubicación GPS de forma insistente
   const solicitarUbicacion = () => {
     if (!navigator.geolocation) {
-      console.error("Geolocalización no disponible");
+      logger.error("Geolocalización no disponible");
       setError(
         "⚠️ Tu navegador no soporta geolocalización. Por favor usa Chrome, Firefox o Safari."
       );
@@ -52,11 +89,11 @@ export default function FichadasForm() {
       return;
     }
 
-    console.log(`🔄 Solicitando ubicación GPS... (intento ${retryCount + 1})`);
+    logger.log(`🔄 Solicitando ubicación GPS... (intento ${retryCount + 1})`);
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        console.log("✅ Ubicación obtenida:", position.coords);
+        logger.log("✅ Ubicación obtenida:", position.coords);
         const userLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
@@ -68,15 +105,15 @@ export default function FichadasForm() {
         // Validar ubicación
         const validation = validarUbicacionParaFichar(userLocation);
         setLocationValidation(validation);
-        console.log("📍 Validación GPS:", validation);
+        logger.log("📍 Validación GPS:", validation);
 
         // Ya no bloqueamos, solo mostramos advertencia
         if (!validation.permitido) {
-          console.log("⚠️ Usuario fuera del rango, pero puede fichar igual");
+          logger.log("⚠️ Usuario fuera del rango, pero puede fichar igual");
         }
       },
       (err) => {
-        console.error(
+        logger.error(
           "❌ Error obteniendo ubicación:",
           err.message,
           "Código:",
@@ -92,17 +129,14 @@ export default function FichadasForm() {
           );
         } else if (err.code === 3) {
           // Timeout - reintentar automáticamente
-          console.log(
+          logger.log(
             "⏱️ Timeout - reintentando con configuración más flexible..."
           );
           setRetryCount((prev) => prev + 1);
 
           navigator.geolocation.getCurrentPosition(
             (position) => {
-              console.log(
-                "✅ Ubicación obtenida (reintento):",
-                position.coords
-              );
+              logger.log("✅ Ubicación obtenida (reintento):", position.coords);
               const userLocation = {
                 lat: position.coords.latitude,
                 lng: position.coords.longitude,
@@ -115,13 +149,13 @@ export default function FichadasForm() {
               setLocationValidation(validation);
 
               if (!validation.permitido) {
-                console.log(
+                logger.log(
                   "⚠️ Usuario fuera del rango, pero puede fichar igual"
                 );
               }
             },
             (err2) => {
-              console.error(
+              logger.error(
                 "❌ Error final obteniendo ubicación:",
                 err2.message
               );
@@ -163,7 +197,7 @@ export default function FichadasForm() {
     // Reintentar cada 15 segundos si no tenemos ubicación
     const intervalo = setInterval(() => {
       if (!location && !gpsPermissionDenied) {
-        console.log("🔄 Reintentando obtener ubicación automáticamente...");
+        logger.log("🔄 Reintentando obtener ubicación automáticamente...");
         solicitarUbicacion();
       }
     }, 15000);
@@ -180,46 +214,10 @@ export default function FichadasForm() {
 
       if (error) throw error;
 
-      // Si no hay datos, usar dependencias de prueba
-      if (!data || data.length === 0) {
-        setDependencias([
-          {
-            id: "001",
-            nombre: "CIC",
-            codigo: "INT-001",
-            direccion: "Calle Garay y Nogoya",
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: "002",
-            nombre: "NIDO",
-            codigo: "OBR-001",
-            direccion: "Calle Misiones y Buenos Aires",
-            created_at: new Date().toISOString(),
-          },
-        ]);
-      } else {
-        setDependencias(data);
-      }
+      setDependencias(data || []);
     } catch (err) {
-      console.error("Error cargando dependencias:", err);
-      // Si hay error, usar datos de prueba
-      setDependencias([
-        {
-          id: "001",
-          nombre: "CIC",
-          codigo: "INT-001",
-          direccion: "Calle Garay y Nogoya",
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "002",
-          nombre: "NIDO",
-          codigo: "OBR-001",
-          direccion: "Calle Misiones y Buenos Aires",
-          created_at: new Date().toISOString(),
-        },
-      ]);
+      logger.error("Error cargando dependencias:", err);
+      setError(handleSupabaseError(err));
     }
   };
 
@@ -231,8 +229,10 @@ export default function FichadasForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!documento) {
-      setError("Por favor ingresá tu DNI");
+    // Validar DNI
+    const dniSanitizado = sanitizeDNI(documento);
+    if (!isValidDNI(dniSanitizado)) {
+      setError("Por favor ingresá un DNI válido (7 u 8 dígitos)");
       return;
     }
 
@@ -246,12 +246,17 @@ export default function FichadasForm() {
       return;
     }
 
+    if (!location) {
+      setError("Esperando ubicación GPS...");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
       // Subir foto a Supabase Storage
-      const fileName = `${Date.now()}-${documento}.jpg`;
+      const fileName = `${Date.now()}-${dniSanitizado}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("fotos-fichadas")
         .upload(fileName, photoBlob);
@@ -263,22 +268,17 @@ export default function FichadasForm() {
         .from("fotos-fichadas")
         .getPublicUrl(fileName);
 
-      // Obtener información de la dependencia cercana
-      const depCercana = location
-        ? encontrarDependenciaCercana(location)
-        : null;
-
       // Guardar fichada con ubicación validada
       const fichadaData: FichadaInsert = {
         dependencia_id: dependencia.id,
-        documento,
+        documento: dniSanitizado,
         tipo: tipoFichada,
         foto_url: urlData.publicUrl,
         latitud: location?.lat,
         longitud: location?.lng,
       };
 
-      console.log("Enviando fichada:", fichadaData);
+      logger.log("Enviando fichada:", fichadaData);
 
       const { error: insertError } = await supabase
         .from("fichadas")
@@ -295,8 +295,8 @@ export default function FichadasForm() {
 
       setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
-      setError("Error al registrar fichada. Intenta nuevamente.");
-      console.error(err);
+      setError(handleSupabaseError(err));
+      logger.error("Error al registrar fichada:", err);
     } finally {
       setLoading(false);
     }
@@ -353,9 +353,10 @@ export default function FichadasForm() {
                 type="text"
                 id="documento"
                 value={documento}
-                onChange={(e) =>
-                  setDocumento(e.target.value.replace(/\D/g, ""))
-                }
+                onChange={(e) => {
+                  const sanitized = sanitizeDNI(e.target.value);
+                  setDocumento(sanitized);
+                }}
                 placeholder="Ingrese su DNI"
                 maxLength={8}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"

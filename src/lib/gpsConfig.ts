@@ -11,16 +11,21 @@ export const dependencias: Record<string, Ubicacion> = {
   cic: {
     lat: -31.771765084997554,
     lng: -60.42306082350464,
-    radius: 100, // ~1 manzana en metros
+    radius: 100, // Radio estricto: 100 metros
     nombre: "CIC"
   },
   nido: {
     lat: -31.777360074698333,
     lng: -60.43369446481205,
-    radius: 100, // ~1 manzana en metros
+    radius: 100, // Radio estricto: 100 metros
     nombre: "NIDO"
   }
 };
+
+/**
+ * Tiempo mínimo entre fichadas del mismo usuario (en minutos)
+ */
+export const TIEMPO_MINIMO_ENTRE_FICHADAS = 5;
 
 /**
  * Calcula la distancia entre dos puntos GPS usando la fórmula de Haversine

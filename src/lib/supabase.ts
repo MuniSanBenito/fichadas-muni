@@ -11,6 +11,9 @@ export interface Dependencia {
   nombre: string;
   codigo: string;
   direccion?: string;
+  latitud?: number;
+  longitud?: number;
+  radio_metros?: number;
   created_at: string;
 }
 

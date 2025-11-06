@@ -1,0 +1,233 @@
+/**
+ * Utilidades generales del proyecto
+ */
+
+// ==========================================
+// VALIDACIÓN Y SANITIZACIÓN
+// ==========================================
+
+/**
+ * Sanitiza y valida un DNI
+ */
+export const sanitizeDNI = (dni: string): string => {
+  return dni.replace(/[^\d]/g, "").slice(0, 8);
+};
+
+/**
+ * Valida que un DNI sea correcto
+ */
+export const isValidDNI = (dni: string): boolean => {
+  const sanitized = sanitizeDNI(dni);
+  return /^\d{7,8}$/.test(sanitized);
+};
+
+// ==========================================
+// MANEJO DE ERRORES DE SUPABASE
+// ==========================================
+
+/**
+ * Convierte errores de Supabase en mensajes amigables
+ */
+export const handleSupabaseError = (error: any): string => {
+  if (!error) return "Error desconocido";
+
+  // Errores de base de datos PostgreSQL
+  if (error.code) {
+    switch (error.code) {
+      case "23505":
+        return "Ya existe un registro similar";
+      case "23503":
+        return "Referencia inválida. Verifica los datos.";
+      case "23514":
+        return "Datos inválidos. Verifica la información.";
+      case "42501":
+      case "PGRST301":
+        return "No tienes permisos para realizar esta acción";
+      case "PGRST116":
+        return "No se encontraron registros";
+      default:
+        break;
+    }
+  }
+
+  // Errores de autenticación
+  if (error.message) {
+    if (error.message.includes("Invalid login credentials")) {
+      return "Credenciales incorrectas";
+    }
+    if (error.message.includes("Email not confirmed")) {
+      return "Email no confirmado";
+    }
+    if (error.message.includes("User already registered")) {
+      return "Usuario ya registrado";
+    }
+  }
+
+  // Errores de storage
+  if (error.message?.includes("storage")) {
+    return "Error al subir el archivo. Intenta nuevamente.";
+  }
+
+  return error.message || "Error al procesar la solicitud. Intenta nuevamente.";
+};
+
+// ==========================================
+// VALIDACIÓN DE ARCHIVOS
+// ==========================================
+
+export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png"];
+
+/**
+ * Valida que un archivo sea una imagen válida
+ */
+export const validateImageFile = (
+  blob: Blob
+): { valid: boolean; error?: string } => {
+  // Validar tipo
+  if (!ALLOWED_IMAGE_TYPES.includes(blob.type)) {
+    return {
+      valid: false,
+      error: "Formato no válido. Solo se permiten JPG y PNG.",
+    };
+  }
+
+  // Validar tamaño
+  if (blob.size > MAX_FILE_SIZE) {
+    return {
+      valid: false,
+      error: "La imagen es muy grande. Máximo 5MB.",
+    };
+  }
+
+  return { valid: true };
+};
+
+/**
+ * Comprime una imagen usando canvas
+ */
+export const compressImage = async (
+  blob: Blob,
+  maxWidth: number = 1920,
+  quality: number = 0.8
+): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      reject(new Error("No se pudo crear contexto de canvas"));
+      return;
+    }
+
+    img.onload = () => {
+      // Calcular nuevas dimensiones manteniendo aspect ratio
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = (height * maxWidth) / width;
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // Dibujar imagen redimensionada
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convertir a blob con compresión
+      canvas.toBlob(
+        (compressedBlob) => {
+          if (compressedBlob) {
+            resolve(compressedBlob);
+          } else {
+            reject(new Error("Error al comprimir imagen"));
+          }
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+
+    img.onerror = () => reject(new Error("Error al cargar imagen"));
+    img.src = URL.createObjectURL(blob);
+  });
+};
+
+// ==========================================
+// UTILIDADES DE FECHA
+// ==========================================
+
+/**
+ * Obtiene el rango de fechas para "hoy"
+ */
+export const getTodayRange = (): { desde: string; hasta: string } => {
+  const today = new Date().toISOString().split("T")[0];
+  return { desde: today, hasta: today };
+};
+
+/**
+ * Obtiene el rango de fechas para "esta semana"
+ */
+export const getThisWeekRange = (): { desde: string; hasta: string } => {
+  const today = new Date();
+  const weekAgo = new Date(today);
+  weekAgo.setDate(today.getDate() - 7);
+
+  return {
+    desde: weekAgo.toISOString().split("T")[0],
+    hasta: today.toISOString().split("T")[0],
+  };
+};
+
+/**
+ * Obtiene el rango de fechas para "este mes"
+ */
+export const getThisMonthRange = (): { desde: string; hasta: string } => {
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  return {
+    desde: firstDay.toISOString().split("T")[0],
+    hasta: today.toISOString().split("T")[0],
+  };
+};
+
+// ==========================================
+// LOGGER CONDICIONAL
+// ==========================================
+
+/**
+ * Logger que solo funciona en desarrollo
+ */
+export const logger = {
+  log: (...args: any[]) => {
+    if (process.env.NODE_ENV === "development") {
+      console.log(...args);
+    }
+  },
+  error: (...args: any[]) => {
+    if (process.env.NODE_ENV === "development") {
+      console.error(...args);
+    }
+  },
+  warn: (...args: any[]) => {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(...args);
+    }
+  },
+};
+
+// ==========================================
+// FORMATEO
+// ==========================================
+
+/**
+ * Formatea un número de DNI con puntos
+ */
+export const formatDNI = (dni: string): string => {
+  const sanitized = sanitizeDNI(dni);
+  return sanitized.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
