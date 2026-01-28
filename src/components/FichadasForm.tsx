@@ -8,7 +8,7 @@ import {
   type Dependencia,
   type TipoFichada,
 } from "@/lib/supabase";
-import { validarUbicacionParaFichar } from "@/lib/gpsConfig";
+import { validarUbicacionParaFichar, validarUbicacionParaDependencia } from "@/lib/gpsConfig";
 import {
   sanitizeDNI,
   isValidDNI,
@@ -45,7 +45,21 @@ export default function FichadasForm() {
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  // Función para solicitar ubicación GPS de forma insistente
+  // Detectar plataforma una sola vez
+  const [deviceInfo] = useState(() => {
+    if (typeof window === "undefined") return { isIOS: false, isAndroid: false, isMobile: false };
+    const ua = navigator.userAgent.toLowerCase();
+    return {
+      isIOS: /iphone|ipad|ipod/.test(ua) || (ua.includes("mac") && "ontouchend" in document),
+      isAndroid: /android/i.test(ua),
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+    };
+  });
+
+  // Watch ID para limpiar en móviles
+  const [watchId, setWatchId] = useState<number | null>(null);
+
+  // Función para solicitar ubicación GPS optimizada para móviles
   const solicitarUbicacion = () => {
     if (!navigator.geolocation) {
       logger.error("Geolocalización no disponible");
@@ -56,110 +70,134 @@ export default function FichadasForm() {
       return;
     }
 
-    logger.log(`🔄 Solicitando ubicación GPS... (intento ${retryCount + 1})`);
+    logger.log(`🔄 Solicitando ubicación GPS... (${deviceInfo.isIOS ? "iOS" : deviceInfo.isAndroid ? "Android" : "Desktop"})`);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        logger.log("✅ Ubicación obtenida:", position.coords);
-        const userLocation = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-        setLocation(userLocation);
-        setGpsPermissionDenied(false);
-        setError("");
+    // Configuración optimizada por plataforma
+    const geoOptionsHigh: PositionOptions = deviceInfo.isIOS
+      ? { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      : deviceInfo.isAndroid
+        ? { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        : { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
 
-        // Validar ubicación
-        const validation = validarUbicacionParaFichar(userLocation);
-        setLocationValidation(validation);
-        logger.log("📍 Validación GPS:", validation);
+    const geoOptionsLow: PositionOptions = {
+      enableHighAccuracy: false,
+      timeout: 20000,
+      maximumAge: 30000
+    };
 
-        // Ya no bloqueamos, solo mostramos advertencia
-        if (!validation.permitido) {
-          logger.log("⚠️ Usuario fuera del rango, pero puede fichar igual");
-        }
-      },
-      (err) => {
-        logger.error(
-          "❌ Error obteniendo ubicación:",
-          err.message,
-          "Código:",
-          err.code
-        );
+    // Handler de éxito
+    const onSuccess = (position: GeolocationPosition) => {
+      logger.log("✅ Ubicación obtenida:", {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      });
 
-        // err.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
-        if (err.code === 1) {
-          setGpsPermissionDenied(true);
-          setError(
-            "🚫 Necesitamos tu ubicación para verificar que estés en CIC o NIDO. " +
-              "Por favor, habilita los permisos de ubicación en tu navegador y presiona 'Reintentar GPS'."
-          );
-        } else if (err.code === 3) {
-          // Timeout - reintentar automáticamente
-          logger.log(
-            "⏱️ Timeout - reintentando con configuración más flexible..."
-          );
-          setRetryCount((prev) => prev + 1);
+      const userLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      };
+      setLocation(userLocation);
+      setGpsPermissionDenied(false);
+      setError("");
 
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              logger.log("✅ Ubicación obtenida (reintento):", position.coords);
-              const userLocation = {
-                lat: position.coords.latitude,
-                lng: position.coords.longitude,
-              };
-              setLocation(userLocation);
-              setGpsPermissionDenied(false);
-              setError("");
+      logger.log("📍 Ubicación guardada, se validará al seleccionar dependencia");
+    };
 
-              const validation = validarUbicacionParaFichar(userLocation);
-              setLocationValidation(validation);
+    // Handler de error
+    const onError = (err: GeolocationPositionError, isRetry: boolean = false) => {
+      logger.error("❌ Error obteniendo ubicación:", err.message, "Código:", err.code);
 
-              if (!validation.permitido) {
-                logger.log(
-                  "⚠️ Usuario fuera del rango, pero puede fichar igual"
-                );
-              }
-            },
-            (err2) => {
-              logger.error(
-                "❌ Error final obteniendo ubicación:",
-                err2.message
-              );
-              setGpsPermissionDenied(true);
-              setError(
-                "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y " +
-                  "hayas dado permisos al navegador. Presiona 'Reintentar GPS' para volver a intentar."
-              );
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 15000,
-              maximumAge: 60000, // Aceptar ubicación de hasta 1 minuto atrás
-            }
-          );
+      if (err.code === 1) {
+        // PERMISSION_DENIED
+        let errorMsg = "🚫 Necesitamos acceso a tu ubicación para verificar que estés en una dependencia municipal. ";
+
+        if (deviceInfo.isIOS) {
+          errorMsg += "Ve a Configuración > Privacidad > Servicios de ubicación > Safari y selecciona 'Mientras se usa la app'.";
+        } else if (deviceInfo.isAndroid) {
+          errorMsg += "Toca el ícono de candado/info en la barra de direcciones y permite el acceso a la ubicación.";
         } else {
-          setGpsPermissionDenied(true);
-          setError(
-            "⚠️ Error obteniendo ubicación GPS. Asegúrate de tener GPS activado y " +
-              "presiona 'Reintentar GPS'."
-          );
+          errorMsg += "Por favor, habilita los permisos de ubicación en tu navegador y presiona 'Reintentar GPS'.";
         }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 0,
+
+        setGpsPermissionDenied(true);
+        setError(errorMsg);
+      } else if (err.code === 3 && !isRetry) {
+        // TIMEOUT - reintentar con baja precisión
+        logger.log("⏱️ Timeout - reintentando con baja precisión...");
+        setRetryCount((prev) => prev + 1);
+
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          (e) => onError(e, true),
+          geoOptionsLow
+        );
+      } else if (err.code === 2) {
+        // POSITION_UNAVAILABLE
+        let errorMsg = "⚠️ No se pudo determinar tu ubicación. ";
+
+        if (deviceInfo.isIOS) {
+          errorMsg += "Asegúrate de tener los Servicios de ubicación activados en Configuración > Privacidad.";
+        } else if (deviceInfo.isAndroid) {
+          errorMsg += "Activa el GPS desde la barra de notificaciones o ve a Configuración > Ubicación.";
+        } else {
+          errorMsg += "Verifica que tengas GPS activado.";
+        }
+
+        setGpsPermissionDenied(true);
+        setError(errorMsg);
+      } else {
+        setGpsPermissionDenied(true);
+        setError(
+          "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y " +
+          "presiona 'Reintentar GPS' para volver a intentar."
+        );
       }
-    );
+    };
+
+    // En móviles, usar watchPosition para activar el GPS más rápido
+    if (deviceInfo.isMobile) {
+      // Limpiar watch anterior si existe
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+
+      const newWatchId = navigator.geolocation.watchPosition(
+        (position) => {
+          // Al obtener la primera posición, dejar de observar
+          navigator.geolocation.clearWatch(newWatchId);
+          setWatchId(null);
+          onSuccess(position);
+        },
+        (err) => {
+          navigator.geolocation.clearWatch(newWatchId);
+          setWatchId(null);
+          onError(err);
+        },
+        geoOptionsHigh
+      );
+
+      setWatchId(newWatchId);
+
+      // Fallback con getCurrentPosition después de 3 segundos
+      setTimeout(() => {
+        if (!location) {
+          navigator.geolocation.getCurrentPosition(onSuccess, onError, geoOptionsHigh);
+        }
+      }, 3000);
+    } else {
+      // En desktop, usar getCurrentPosition directamente
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, geoOptionsHigh);
+    }
   };
 
   useEffect(() => {
     // Cargar todas las dependencias
     loadDependencias();
 
-    // Solicitar ubicación al cargar
-    solicitarUbicacion();
+    // Pequeño delay en iOS para asegurar que la página esté cargada
+    const delay = deviceInfo.isIOS ? 500 : 0;
+    const timeoutId = setTimeout(solicitarUbicacion, delay);
 
     // Reintentar cada 15 segundos si no tenemos ubicación
     const intervalo = setInterval(() => {
@@ -169,9 +207,41 @@ export default function FichadasForm() {
       }
     }, 15000);
 
-    return () => clearInterval(intervalo);
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalo);
+      // Limpiar watchPosition si existe
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Validar ubicación cuando cambie la dependencia seleccionada o la ubicación
+  useEffect(() => {
+    if (!location) {
+      setLocationValidation(null);
+      return;
+    }
+
+    // Si hay una dependencia seleccionada, validar contra ella
+    if (dependencia) {
+      const validation = validarUbicacionParaDependencia(location, {
+        nombre: dependencia.nombre,
+        latitud: dependencia.latitud,
+        longitud: dependencia.longitud,
+        radio_metros: dependencia.radio_metros,
+      });
+      setLocationValidation(validation);
+      logger.log("📍 Validación GPS contra dependencia seleccionada:", validation);
+    } else {
+      // Si no hay dependencia seleccionada, validar contra la dependencia más cercana (comportamiento original)
+      const validation = validarUbicacionParaFichar(location);
+      setLocationValidation(validation);
+      logger.log("📍 Validación GPS general:", validation);
+    }
+  }, [location, dependencia]);
 
   const loadDependencias = async () => {
     try {
@@ -343,11 +413,10 @@ export default function FichadasForm() {
                   type="button"
                   onClick={() => setTipoFichada("entrada")}
                   disabled={loading}
-                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
-                    tipoFichada === "entrada"
-                      ? "bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400"
-                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                  }`}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${tipoFichada === "entrada"
+                    ? "bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400"
+                    : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+                    }`}
                 >
                   <LogIn className="w-5 h-5" />
                   <span className="font-semibold">Entrada</span>
@@ -356,11 +425,10 @@ export default function FichadasForm() {
                   type="button"
                   onClick={() => setTipoFichada("salida")}
                   disabled={loading}
-                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
-                    tipoFichada === "salida"
-                      ? "bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400"
-                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                  }`}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${tipoFichada === "salida"
+                    ? "bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400"
+                    : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+                    }`}
                 >
                   <LogOut className="w-5 h-5" />
                   <span className="font-semibold">Salida</span>
@@ -475,7 +543,9 @@ export default function FichadasForm() {
                         <li>
                           Dar permisos de ubicación a este sitio en el navegador
                         </li>
-                        <li>Estar en CIC o NIDO (a menos de 100m)</li>
+                        <li>
+                          Estar en BIBLIOTECA, CIC o NIDO (a menos de 100m)
+                        </li>
                       </ul>
                     </div>
                   </div>

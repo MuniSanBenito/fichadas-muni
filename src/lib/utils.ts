@@ -140,6 +140,15 @@ export const compressImage = async (
       return;
     }
 
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src); // Liberar memoria en error
+      reject(new Error("Error al cargar imagen"));
+    };
+
+    const objectUrl = URL.createObjectURL(blob);
+    img.src = objectUrl;
+
+    // Liberar memoria después de que la imagen se cargue
     img.onload = () => {
       // Calcular nuevas dimensiones manteniendo aspect ratio
       let width = img.width;
@@ -156,6 +165,9 @@ export const compressImage = async (
       // Dibujar imagen redimensionada
       ctx.drawImage(img, 0, 0, width, height);
 
+      // Liberar memoria de la URL del objeto
+      URL.revokeObjectURL(objectUrl);
+
       // Convertir a blob con compresión
       canvas.toBlob(
         (compressedBlob) => {
@@ -169,9 +181,6 @@ export const compressImage = async (
         quality
       );
     };
-
-    img.onerror = () => reject(new Error("Error al cargar imagen"));
-    img.src = URL.createObjectURL(blob);
   });
 };
 

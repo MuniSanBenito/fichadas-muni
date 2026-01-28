@@ -69,7 +69,7 @@ Abrí [http://localhost:3000](http://localhost:3000) en tu navegador.
 ### Para Empleados
 
 1. **Ingresar DNI**: Escribí tu número de documento
-2. **Seleccionar Dependencia**: Elegí tu lugar de trabajo (CIC, NIDO, Pañol, etc.)
+2. **Seleccionar Dependencia**: Elegí tu lugar de trabajo (CIC, NIDO, BIBLIOTECA, etc.)
 3. **Tomar Foto**: Tomá una selfie (debe ser en tiempo real, no de galería)
 4. **Registrar**: Presioná "Registrar Fichada"
 

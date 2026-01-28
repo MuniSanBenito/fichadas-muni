@@ -44,14 +44,14 @@ export const calcularDistancia = (
   const R = 6371000; // Radio de la Tierra en metros
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  
+
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) *
+    Math.sin(dLng / 2);
+
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 };
@@ -73,7 +73,7 @@ export const estaDentroDelRadio = (
     dependencia.lat,
     dependencia.lng
   );
-  
+
   return {
     dentroDelRadio: distancia <= dependencia.radius,
     distancia: Math.round(distancia),
@@ -97,7 +97,7 @@ export const encontrarDependenciaCercana = (
       dep.lat,
       dep.lng
     );
-    
+
     if (distancia < menorDistancia) {
       menorDistancia = distancia;
       dependenciaMasCercana = {
@@ -121,7 +121,7 @@ export const validarUbicacionParaFichar = (
   dependenciaCercana: (Ubicacion & { distancia: number }) | null;
 } => {
   const dependenciaCercana = encontrarDependenciaCercana(posicionUsuario);
-  
+
   if (!dependenciaCercana) {
     return {
       permitido: false,
@@ -144,5 +144,58 @@ export const validarUbicacionParaFichar = (
     permitido: true,
     mensaje: `✓ Ubicación válida: ${validacion.dependencia} (${validacion.distancia}m)`,
     dependenciaCercana
+  };
+};
+
+/**
+ * Valida si el usuario puede fichar desde su ubicación actual para una dependencia específica
+ * @param posicionUsuario Posición GPS del usuario
+ * @param dependenciaSeleccionada Datos de la dependencia seleccionada (con latitud, longitud y radio)
+ */
+export const validarUbicacionParaDependencia = (
+  posicionUsuario: { lat: number; lng: number },
+  dependenciaSeleccionada: {
+    nombre: string;
+    latitud?: number | null;
+    longitud?: number | null;
+    radio_metros?: number | null;
+  }
+): {
+  permitido: boolean;
+  mensaje: string;
+  distancia: number | null;
+} => {
+  // Si la dependencia no tiene coordenadas configuradas, permitir siempre
+  if (!dependenciaSeleccionada.latitud || !dependenciaSeleccionada.longitud) {
+    return {
+      permitido: true,
+      mensaje: `✓ Fichando en ${dependenciaSeleccionada.nombre} (sin validación GPS configurada)`,
+      distancia: null
+    };
+  }
+
+  const radio = dependenciaSeleccionada.radio_metros || 100; // Default 100 metros
+
+  const distancia = calcularDistancia(
+    posicionUsuario.lat,
+    posicionUsuario.lng,
+    dependenciaSeleccionada.latitud,
+    dependenciaSeleccionada.longitud
+  );
+
+  const distanciaRedondeada = Math.round(distancia);
+
+  if (distancia <= radio) {
+    return {
+      permitido: true,
+      mensaje: `✓ Ubicación válida: ${dependenciaSeleccionada.nombre} (${distanciaRedondeada}m)`,
+      distancia: distanciaRedondeada
+    };
+  }
+
+  return {
+    permitido: false,
+    mensaje: `⚠️ Estás a ${distanciaRedondeada}m de ${dependenciaSeleccionada.nombre}. Debes estar dentro de ${radio}m para fichar.`,
+    distancia: distanciaRedondeada
   };
 };
