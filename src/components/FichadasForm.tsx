@@ -8,7 +8,7 @@ import {
   type Dependencia,
   type TipoFichada,
 } from "@/lib/supabase";
-import { validarUbicacionParaFichar, validarUbicacionParaDependencia } from "@/lib/gpsConfig";
+import { validarUbicacionParaFichar, validarUbicacionParaDependencia, encontrarDependenciaMasCercanaDeLista } from "@/lib/gpsConfig";
 import {
   sanitizeDNI,
   isValidDNI,
@@ -217,6 +217,23 @@ export default function FichadasForm() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-seleccionar la dependencia más cercana cuando se obtiene la ubicación
+  useEffect(() => {
+    // Solo auto-seleccionar si no hay dependencia seleccionada manualmente
+    if (!location || dependencias.length === 0 || dependencia) return;
+
+    const dependenciaCercana = encontrarDependenciaMasCercanaDeLista(location, dependencias);
+
+    if (dependenciaCercana) {
+      // Buscar la dependencia completa en la lista
+      const dependenciaCompleta = dependencias.find(d => d.id === dependenciaCercana.id);
+      if (dependenciaCompleta) {
+        setDependencia(dependenciaCompleta);
+        logger.log(`📍 Auto-seleccionada dependencia más cercana: ${dependenciaCercana.nombre} (${dependenciaCercana.distancia}m)`);
+      }
+    }
+  }, [location, dependencias]); // No incluir 'dependencia' para evitar ciclos
 
   // Validar ubicación cuando cambie la dependencia seleccionada o la ubicación
   useEffect(() => {

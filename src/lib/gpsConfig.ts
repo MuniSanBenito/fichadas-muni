@@ -152,6 +152,54 @@ export const validarUbicacionParaFichar = (
  * @param posicionUsuario Posición GPS del usuario
  * @param dependenciaSeleccionada Datos de la dependencia seleccionada (con latitud, longitud y radio)
  */
+/**
+ * Interfaz para dependencias que vienen de la base de datos
+ */
+export interface DependenciaBD {
+  id: string;
+  nombre: string;
+  latitud?: number | null;
+  longitud?: number | null;
+  radio_metros?: number | null;
+}
+
+/**
+ * Encuentra la dependencia más cercana de una lista de dependencias (de la BD)
+ * Solo considera dependencias que tengan coordenadas GPS configuradas
+ * @param posicionUsuario Posición GPS del usuario
+ * @param listaDependencias Lista de dependencias de la BD
+ * @returns La dependencia más cercana con su distancia, o null si ninguna tiene GPS
+ */
+export const encontrarDependenciaMasCercanaDeLista = (
+  posicionUsuario: { lat: number; lng: number },
+  listaDependencias: DependenciaBD[]
+): (DependenciaBD & { distancia: number }) | null => {
+  let dependenciaMasCercana: (DependenciaBD & { distancia: number }) | null = null;
+  let menorDistancia = Infinity;
+
+  listaDependencias.forEach((dep) => {
+    // Solo considerar dependencias con coordenadas configuradas
+    if (!dep.latitud || !dep.longitud) return;
+
+    const distancia = calcularDistancia(
+      posicionUsuario.lat,
+      posicionUsuario.lng,
+      dep.latitud,
+      dep.longitud
+    );
+
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia;
+      dependenciaMasCercana = {
+        ...dep,
+        distancia: Math.round(distancia)
+      };
+    }
+  });
+
+  return dependenciaMasCercana;
+};
+
 export const validarUbicacionParaDependencia = (
   posicionUsuario: { lat: number; lng: number },
   dependenciaSeleccionada: {
