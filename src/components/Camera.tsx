@@ -19,10 +19,11 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
   const [error, setError] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [constraintLevel, setConstraintLevel] = useState(0);
 
   // Detectar plataforma
   const [deviceInfo] = useState(() => {
-    if (typeof window === "undefined") return { isIOS: false, isAndroid: false, isMobile: false, browser: "" };
+    if (typeof window === "undefined") return { isIOS: false, isAndroid: false, isMobile: false, browser: "", isOldDevice: false };
     const ua = navigator.userAgent.toLowerCase();
 
     let browser = "unknown";
@@ -33,19 +34,27 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
     else if (ua.includes("firefox")) browser = "firefox";
     else if (ua.includes("samsung")) browser = "samsung";
 
+    const androidMatch = ua.match(/android\s*(\d+)/i);
+    const androidVersion = androidMatch ? parseInt(androidMatch[1]) : 99;
+    const isOldAndroid = androidVersion < 8;
+
+    const iosMatch = ua.match(/os\s*(\d+)/i);
+    const iosVersion = iosMatch ? parseInt(iosMatch[1]) : 99;
+    const isOldIOS = iosVersion < 13;
+
     return {
       isIOS: /iphone|ipad|ipod/.test(ua) || (ua.includes("mac") && "ontouchend" in document),
       isAndroid: /android/i.test(ua),
       isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
-      browser
+      browser,
+      isOldDevice: isOldAndroid || isOldIOS
     };
   });
 
   const stopCamera = useCallback(() => {
     if (stream) {
       stream.getTracks().forEach((track) => {
-        track.stop();
-        logger.log("📷 Track detenido:", track.label);
+        try { track.stop(); } catch { /* ignore */ }
       });
       setStream(null);
       setIsCameraActive(false);
@@ -56,87 +65,89 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
     }
   }, [stream]);
 
+  const getConstraints = useCallback((level: number): MediaStreamConstraints => {
+    if (level === 0) {
+      return {
+        video: deviceInfo.isMobile
+          ? { facingMode: { ideal: facingMode }, width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 } }
+          : { facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      };
+    }
+    if (level === 1) {
+      return {
+        video: { facingMode, width: { ideal: 320 }, height: { ideal: 240 } },
+        audio: false,
+      };
+    }
+    return { video: true, audio: false };
+  }, [facingMode, deviceInfo.isMobile]);
+
   const startCamera = useCallback(async () => {
     try {
       setError("");
       setIsCameraReady(false);
 
-      // Verificar si getUserMedia está disponible
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        logger.error("getUserMedia no disponible");
-        setError("⚠️ Tu navegador no soporta acceso a cámara. Prueba con Chrome, Safari o Firefox.");
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("⚠️ Tu navegador no soporta acceso a cámara. Actualiza tu navegador o usa Chrome/Firefox.");
         return;
       }
 
-      logger.log(`📷 Iniciando cámara en ${deviceInfo.browser} (${deviceInfo.isMobile ? "móvil" : "desktop"})`);
+      const startLevel = deviceInfo.isOldDevice ? 1 : constraintLevel;
+      let constraints = getConstraints(startLevel);
 
-      // Configuración de constraints optimizada para móviles
-      const constraints: MediaStreamConstraints = {
-        video: deviceInfo.isMobile
-          ? {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 }
-          }
-          : {
-            facingMode,
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-        audio: false,
-      };
+      logger.log(`📷 Iniciando cámara (nivel ${startLevel}) en ${deviceInfo.browser}`);
 
-      logger.log("📷 Solicitando stream con constraints:", constraints);
+      let mediaStream: MediaStream;
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        logger.log("📷 Fallback a constraints más simples...");
+        const nextLevel = Math.min(startLevel + 1, 2);
+        setConstraintLevel(nextLevel);
+        constraints = getConstraints(nextLevel);
 
-      logger.log("📷 Stream obtenido:", mediaStream.getVideoTracks().map(t => ({
-        label: t.label,
-        readyState: t.readyState,
-        enabled: t.enabled
-      })));
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch {
+          logger.log("📷 Último intento con video: true");
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
+
+      logger.log("📷 Stream obtenido correctamente");
 
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
 
-        // Esperar a que el video esté realmente listo
+        const timeoutMs = deviceInfo.isOldDevice ? 15000 : 10000;
+
         await new Promise<void>((resolve, reject) => {
           const video = videoRef.current!;
           const timeoutId = setTimeout(() => {
-            reject(new Error("Timeout esperando video"));
-          }, 10000);
+            if (video.readyState >= 1 || video.videoWidth > 0) resolve();
+            else reject(new Error("Timeout"));
+          }, timeoutMs);
 
-          const handleLoadedMetadata = () => {
+          const handleReady = () => {
             clearTimeout(timeoutId);
-            logger.log("📷 Video metadata cargada:", {
-              width: video.videoWidth,
-              height: video.videoHeight
-            });
             resolve();
           };
 
-          const handleError = (e: Event) => {
-            clearTimeout(timeoutId);
-            logger.error("📷 Error en video element:", e);
-            reject(new Error("Error cargando video"));
-          };
+          video.addEventListener("loadedmetadata", handleReady, { once: true });
+          video.addEventListener("canplay", handleReady, { once: true });
 
-          video.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
-          video.addEventListener("error", handleError, { once: true });
-
-          // Si ya tiene metadata, resolver inmediatamente
-          if (video.readyState >= 1) {
+          if (video.readyState >= 2) {
             clearTimeout(timeoutId);
             resolve();
           }
         });
 
-        // Intentar reproducir el video
         try {
           await videoRef.current.play();
-          logger.log("📷 Video reproduciéndose");
-        } catch (playErr) {
-          logger.error("📷 Error al reproducir video:", playErr);
+        } catch {
+          logger.log("📷 Play falló pero continuando");
         }
 
         setStream(mediaStream);
@@ -146,7 +157,7 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
       }
     } catch (err: unknown) {
       const error = err as Error & { name?: string };
-      logger.error("📷 Error al acceder a cámara:", error.name, error.message);
+      logger.error("📷 Error:", error.name, error.message);
 
       let errorMessage = "";
 
@@ -154,57 +165,39 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
         if (deviceInfo.isIOS) {
           errorMessage = "🚫 Permiso de cámara denegado.\n\n📱 En iPhone/iPad:\n1. Ve a Configuración > Safari > Cámara\n2. Selecciona 'Permitir'\n3. Recarga esta página";
         } else if (deviceInfo.isAndroid) {
-          errorMessage = "🚫 Permiso de cámara denegado.\n\n📱 En Android:\n1. Toca el icono de candado/info en la barra de direcciones\n2. Permite el acceso a 'Cámara'\n3. Recarga esta página";
+          errorMessage = "🚫 Permiso de cámara denegado.\n\n📱 En Android:\n1. Toca el icono de candado en la barra\n2. Permite 'Cámara'\n3. Recarga esta página";
         } else {
-          errorMessage = "🚫 Permiso de cámara denegado. Por favor, permite el acceso a la cámara en tu navegador y recarga la página.";
+          errorMessage = "🚫 Permiso de cámara denegado. Permite el acceso y recarga.";
         }
-      } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
-        errorMessage = "📷 No se encontró ninguna cámara. ¿Está conectada correctamente?";
-      } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
-        // La cámara está siendo usada por otra aplicación
-        if (retryCount < 2) {
+      } else if (error.name === "NotFoundError") {
+        errorMessage = "📷 No se encontró cámara.";
+      } else if (error.name === "NotReadableError") {
+        if (retryCount < 3) {
           setRetryCount(prev => prev + 1);
-          setTimeout(() => startCamera(), 1500);
-          errorMessage = "📷 La cámara estaba ocupada. Reintentando...";
+          setTimeout(() => startCamera(), 2000);
+          errorMessage = "📷 Cámara ocupada. Reintentando...";
         } else {
-          errorMessage = "📷 La cámara está siendo usada por otra aplicación. Cierra otras apps (WhatsApp, Instagram, etc.) e intenta de nuevo.";
+          errorMessage = "📷 Cámara ocupada. Cierra otras apps.";
         }
       } else if (error.name === "OverconstrainedError") {
-        // Reintentar con constraints mínimos
-        if (retryCount < 1) {
-          setRetryCount(prev => prev + 1);
-          try {
-            const simpleStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            if (videoRef.current) {
-              videoRef.current.srcObject = simpleStream;
-              await videoRef.current.play();
-              setStream(simpleStream);
-              setIsCameraActive(true);
-              setIsCameraReady(true);
-              setError("");
-              return;
-            }
-          } catch {
-            errorMessage = "📷 No se pudo iniciar la cámara. Intenta recargar la página.";
-          }
+        if (constraintLevel < 2) {
+          setConstraintLevel(prev => prev + 1);
+          setTimeout(() => startCamera(), 500);
+          return;
         }
-      } else if (error.name === "AbortError") {
-        errorMessage = "📷 La solicitud de cámara fue cancelada. Presiona 'Abrir Cámara' para intentar de nuevo.";
-      } else if (error.name === "SecurityError") {
-        errorMessage = "🔒 Por seguridad, la cámara solo funciona en conexiones seguras (HTTPS).";
+        errorMessage = "📷 Cámara no compatible.";
       } else {
-        errorMessage = `📷 Error al acceder a la cámara. Intenta recargar la página o usa otro navegador.`;
+        errorMessage = "📷 Error al acceder a la cámara. Recarga la página.";
       }
 
       setError(errorMessage);
       stopCamera();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facingMode, deviceInfo, retryCount]);
+  }, [facingMode, deviceInfo, retryCount, constraintLevel, getConstraints, stopCamera]);
 
   const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current || !isCameraReady) {
-      setError("La cámara no está lista. Espera un momento e intenta de nuevo.");
+      setError("La cámara no está lista. Espera un momento.");
       return;
     }
 
@@ -216,70 +209,94 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
 
-      if (context && video.videoWidth > 0 && video.videoHeight > 0) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0);
+      const videoWidth = video.videoWidth || video.clientWidth || 320;
+      const videoHeight = video.videoHeight || video.clientHeight || 240;
+
+      if (context && videoWidth > 0 && videoHeight > 0) {
+        canvas.width = videoWidth;
+        canvas.height = videoHeight;
+
+        // Voltear horizontalmente si es cámara frontal
+        if (facingMode === "user") {
+          context.translate(videoWidth, 0);
+          context.scale(-1, 1);
+        }
+
+        context.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+        const quality = deviceInfo.isOldDevice ? 0.7 : 0.85;
 
         canvas.toBlob(
           async (blob) => {
             if (blob) {
-              // Validar el archivo
               const validation = validateImageFile(blob);
               if (!validation.valid) {
-                setError(validation.error || "Error al validar la imagen");
+                setError(validation.error || "Error al validar");
                 setIsProcessing(false);
                 return;
               }
 
-              // Comprimir la imagen
               try {
-                const compressedBlob = await compressImage(blob, 1920, 0.8);
+                const maxSize = deviceInfo.isOldDevice ? 800 : 1280;
+                const compressedBlob = await compressImage(blob, maxSize, deviceInfo.isOldDevice ? 0.6 : 0.8);
                 onCapture(compressedBlob);
                 stopCamera();
-                logger.log("📷 Foto capturada y comprimida");
-              } catch (err) {
-                logger.error("Error al comprimir imagen:", err);
-                // Si falla la compresión, usar la original
+              } catch {
                 onCapture(blob);
                 stopCamera();
               }
             } else {
-              setError("Error al capturar la foto. Intenta de nuevo.");
+              setError("Error al capturar. Intenta de nuevo.");
             }
             setIsProcessing(false);
           },
           "image/jpeg",
-          0.9
+          quality
         );
       } else {
-        setError("El video no tiene contenido. Espera a que la cámara esté lista.");
-        setIsProcessing(false);
+        canvas.width = 320;
+        canvas.height = 240;
+        if (context) {
+          context.drawImage(video, 0, 0, 320, 240);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                onCapture(blob);
+                stopCamera();
+              } else {
+                setError("No se pudo capturar.");
+              }
+              setIsProcessing(false);
+            },
+            "image/jpeg",
+            0.7
+          );
+        }
       }
-    } catch (err) {
-      logger.error("Error al capturar foto:", err);
-      setError("Error al capturar la foto. Intenta nuevamente.");
+    } catch {
+      setError("Error al capturar. Intenta de nuevo.");
       setIsProcessing(false);
     }
   };
 
   const switchCamera = () => {
     stopCamera();
+    setConstraintLevel(0);
     setFacingMode((prev) => (prev === "user" ? "environment" : "user"));
   };
 
-  // Auto-iniciar cámara cuando cambia facingMode
   useEffect(() => {
     if (facingMode && !stream) {
       startCamera();
     }
   }, [facingMode, stream, startCamera]);
 
-  // Cleanup al desmontar
   useEffect(() => {
     return () => {
       if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+        stream.getTracks().forEach((track) => {
+          try { track.stop(); } catch { /* ignore */ }
+        });
       }
     };
   }, [stream]);
@@ -292,9 +309,9 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
             <button
               onClick={startCamera}
               disabled={disabled}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition"
+              className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-600 text-white px-6 py-4 rounded-lg flex items-center gap-2 transition text-lg"
             >
-              <CameraIcon className="w-5 h-5" />
+              <CameraIcon className="w-6 h-6" />
               Abrir Cámara
             </button>
           </div>
@@ -305,16 +322,16 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover ${!isCameraActive ? "hidden" : ""
-            }`}
+          className={`w-full h-full object-cover ${!isCameraActive ? "hidden" : ""}`}
+          style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
         />
 
-        {/* Indicador de carga de cámara */}
         {isCameraActive && !isCameraReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <div className="text-white text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
-              <p className="text-sm">Iniciando cámara...</p>
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mx-auto mb-3"></div>
+              <p className="text-base">Iniciando cámara...</p>
+              <p className="text-xs mt-1 text-gray-300">Esto puede tardar unos segundos</p>
             </div>
           </div>
         )}
@@ -329,10 +346,14 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
             <div className="flex-1">
               <p className="text-sm whitespace-pre-line">{error}</p>
               <button
-                onClick={startCamera}
-                className="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm"
+                onClick={() => {
+                  setConstraintLevel(0);
+                  setRetryCount(0);
+                  startCamera();
+                }}
+                className="mt-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-3 rounded-lg flex items-center gap-2 transition text-base"
               >
-                <CameraIcon className="w-4 h-4" />
+                <CameraIcon className="w-5 h-5" />
                 Reintentar
               </button>
             </div>
@@ -345,27 +366,27 @@ export default function Camera({ onCapture, disabled }: CameraProps) {
           <button
             onClick={capturePhoto}
             disabled={disabled || isProcessing}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-6 py-3 rounded-lg font-medium transition flex items-center justify-center gap-2"
+            className="flex-1 bg-green-600 hover:bg-green-700 active:bg-green-800 disabled:bg-gray-600 text-white px-6 py-4 rounded-lg font-medium transition flex items-center justify-center gap-2 text-lg"
           >
             {isProcessing ? (
               <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
                 Procesando...
               </>
             ) : (
               <>
-                <CameraIcon className="w-5 h-5" />
-                Capturar Foto
+                <CameraIcon className="w-6 h-6" />
+                Tomar Foto
               </>
             )}
           </button>
           <button
             onClick={switchCamera}
             disabled={disabled || isProcessing}
-            className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-4 py-3 rounded-lg transition"
+            className="bg-gray-600 hover:bg-gray-700 active:bg-gray-800 disabled:bg-gray-400 text-white px-5 py-4 rounded-lg transition"
             title="Cambiar cámara"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-6 h-6" />
           </button>
         </div>
       )}
