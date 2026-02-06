@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Camera from "./Camera";
+import FichadaSuccess from "./FichadaSuccess";
 import {
   supabase,
   type FichadaInsert,
@@ -18,19 +19,24 @@ import {
 import { APP_VERSION } from "@/lib/version";
 import {
   MapPin,
-  CheckCircle,
   AlertCircle,
   Building2,
   LogIn,
   LogOut,
 } from "lucide-react";
 
+// Datos de fichada exitosa para mostrar en la página de éxito
+interface FichadaExitosa {
+  tipoFichada: TipoFichada;
+  dependenciaNombre: string;
+}
+
 export default function FichadasForm() {
   const [documento, setDocumento] = useState("");
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [fichadaExitosa, setFichadaExitosa] = useState<FichadaExitosa | null>(null);
   const [error, setError] = useState("");
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
@@ -341,14 +347,18 @@ export default function FichadasForm() {
 
       if (insertError) throw insertError;
 
-      setSuccess(true);
+      // Guardar datos para mostrar en la página de éxito
+      setFichadaExitosa({
+        tipoFichada,
+        dependenciaNombre: dependencia.nombre,
+      });
+
+      // Limpiar datos del formulario
       setDocumento("");
       setPhotoBlob(null);
       setPhotoPreview("");
       setDependencia(null);
       setTipoFichada("entrada");
-
-      setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
       setError(handleSupabaseError(err));
       logger.error("Error al registrar fichada:", err);
@@ -356,6 +366,17 @@ export default function FichadasForm() {
       setLoading(false);
     }
   };
+
+  // Si hay una fichada exitosa, mostrar la página de confirmación
+  if (fichadaExitosa) {
+    return (
+      <FichadaSuccess
+        tipoFichada={fichadaExitosa.tipoFichada}
+        dependenciaNombre={fichadaExitosa.dependenciaNombre}
+        onVolver={() => setFichadaExitosa(null)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
@@ -377,14 +398,6 @@ export default function FichadasForm() {
               </p>
             )}
           </div>
-
-          {/* Success Message */}
-          {success && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" />
-              <span>¡Fichada registrada exitosamente!</span>
-            </div>
-          )}
 
           {/* Error Message */}
           {error && (
