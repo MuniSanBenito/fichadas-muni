@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { supabase, type Fichada, type Dependencia } from "@/lib/supabase";
 import {
@@ -64,9 +64,6 @@ export default function AdminPanel() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
 
-  // Debounce timer for DNI search
-  const dniDebounceRef = useRef<NodeJS.Timeout | null>(null);
-
   // Modal para ver foto
   const [selectedFichada, setSelectedFichada] =
     useState<FichadaConDependencia | null>(null);
@@ -99,8 +96,8 @@ export default function AdminPanel() {
   );
 
   // Builds a Supabase query with all server-side filters applied
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const buildFilteredQuery = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (baseQuery: any) => {
       let query = baseQuery;
       if (searchDni) {
