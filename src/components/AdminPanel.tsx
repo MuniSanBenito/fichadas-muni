@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase, type Fichada, type Dependencia } from "@/lib/supabase";
 import {
@@ -36,13 +36,12 @@ export interface FichadaConDependencia extends Fichada {
   dependencia?: Dependencia;
 }
 
-const ITEMS_PER_PAGE = 50;
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+const EXPORT_BATCH_SIZE = 1000;
 
 export default function AdminPanel() {
   const [fichadas, setFichadas] = useState<FichadaConDependencia[]>([]);
-  const [filteredFichadas, setFilteredFichadas] = useState<
-    FichadaConDependencia[]
-  >([]);
+  const [displayFichadas, setDisplayFichadas] = useState<FichadaConDependencia[]>([]);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -50,6 +49,10 @@ export default function AdminPanel() {
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+
+  // Export
+  const [exportingAll, setExportingAll] = useState(false);
 
   // Filtros
   const [searchDni, setSearchDni] = useState("");
@@ -60,6 +63,9 @@ export default function AdminPanel() {
   const [soloFueraDeRango, setSoloFueraDeRango] = useState(false);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
+
+  // Debounce timer for DNI search
+  const dniDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   // Modal para ver foto
   const [selectedFichada, setSelectedFichada] =
@@ -92,67 +98,58 @@ export default function AdminPanel() {
     []
   );
 
-  const filterFichadas = useCallback(() => {
-    let filtered = [...fichadas];
+  // Builds a Supabase query with all server-side filters applied
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buildFilteredQuery = useCallback(
+    (baseQuery: any) => {
+      let query = baseQuery;
+      if (searchDni) {
+        query = query.ilike("documento", `%${searchDni}%`);
+      }
+      if (selectedDependencia) {
+        query = query.eq("dependencia_id", selectedDependencia);
+      }
+      if (selectedTipoFichada) {
+        query = query.eq("tipo", selectedTipoFichada);
+      }
+      if (fechaDesde) {
+        query = query.gte("fecha_hora", `${fechaDesde}T00:00:00`);
+      }
+      if (fechaHasta) {
+        query = query.lte("fecha_hora", `${fechaHasta}T23:59:59.999`);
+      }
+      return query;
+    },
+    [searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta]
+  );
 
-    // Filtrar por DNI
-    if (searchDni) {
-      filtered = filtered.filter((f) => f.documento.includes(searchDni));
-    }
-
-    // Filtrar por dependencia
-    if (selectedDependencia) {
-      filtered = filtered.filter(
-        (f) => f.dependencia_id === selectedDependencia
-      );
-    }
-
-    // Filtrar por tipo de fichada
-    if (selectedTipoFichada) {
-      filtered = filtered.filter((f) => f.tipo === selectedTipoFichada);
-    }
-
-    // Filtrar solo fichadas fuera de rango
-    if (soloFueraDeRango) {
-      filtered = filtered.filter((f) => {
+  // Client-side GPS filter (can't be done in Supabase)
+  const applyClientFilters = useCallback(
+    (data: FichadaConDependencia[]) => {
+      if (!soloFueraDeRango) return data;
+      return data.filter((f) => {
         const distanciaInfo = calcularDistanciaDependencia(f);
         return distanciaInfo && !distanciaInfo.valida;
       });
-    }
+    },
+    [soloFueraDeRango, calcularDistanciaDependencia]
+  );
 
-    // Filtrar por fecha desde
-    if (fechaDesde) {
-      const desde = new Date(fechaDesde);
-      filtered = filtered.filter((f) => new Date(f.fecha_hora) >= desde);
-    }
+  // Update displayFichadas when fichadas or GPS filter changes
+  useEffect(() => {
+    setDisplayFichadas(applyClientFilters(fichadas));
+  }, [fichadas, applyClientFilters]);
 
-    // Filtrar por fecha hasta
-    if (fechaHasta) {
-      const hasta = new Date(fechaHasta);
-      hasta.setHours(23, 59, 59, 999);
-      filtered = filtered.filter((f) => new Date(f.fecha_hora) <= hasta);
-    }
-
-    setFilteredFichadas(filtered);
-  }, [
-    fichadas,
-    searchDni,
-    selectedDependencia,
-    selectedTipoFichada,
-    soloFueraDeRango,
-    fechaDesde,
-    fechaHasta,
-    calcularDistanciaDependencia,
-  ]);
-
+  // Reload data when page, page size, or server-side filters change
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+  }, [currentPage, itemsPerPage, searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta]);
 
+  // Reset to page 1 when filters change
   useEffect(() => {
-    filterFichadas();
-  }, [filterFichadas]);
+    setCurrentPage(1);
+  }, [searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta, itemsPerPage]);
 
   const loadData = async () => {
     setLoading(true);
@@ -166,17 +163,19 @@ export default function AdminPanel() {
       if (depError) throw depError;
       setDependencias(depData || []);
 
-      // Cargar fichadas con paginación
-      const from = (currentPage - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
+      // Cargar fichadas con paginación y filtros server-side
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      const baseQuery = supabase
+        .from("fichadas")
+        .select("*", { count: "exact" });
 
       const {
         data: fichadasData,
         error: fichadasError,
         count,
-      } = await supabase
-        .from("fichadas")
-        .select("*", { count: "exact" })
+      } = await buildFilteredQuery(baseQuery)
         .order("fecha_hora", { ascending: false })
         .range(from, to);
 
@@ -186,7 +185,7 @@ export default function AdminPanel() {
       setTotalCount(count || 0);
 
       // Combinar fichadas con sus dependencias
-      const fichadasConDependencia = (fichadasData || []).map((fichada) => ({
+      const fichadasConDependencia = (fichadasData || []).map((fichada: Fichada) => ({
         ...fichada,
         dependencia: depData?.find((d) => d.id === fichada.dependencia_id),
       }));
@@ -200,9 +199,44 @@ export default function AdminPanel() {
     }
   };
 
-  const exportToCSV = () => {
+  // Fetch ALL filtered records in batches (for export)
+  const fetchAllFiltered = async (depData: Dependencia[]): Promise<FichadaConDependencia[]> => {
+    const allRecords: FichadaConDependencia[] = [];
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const baseQuery = supabase
+        .from("fichadas")
+        .select("*");
+
+      const { data, error: fetchError } = await buildFilteredQuery(baseQuery)
+        .order("fecha_hora", { ascending: false })
+        .range(offset, offset + EXPORT_BATCH_SIZE - 1);
+
+      if (fetchError) throw fetchError;
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        const withDeps = data.map((fichada: Fichada) => ({
+          ...fichada,
+          dependencia: depData.find((d) => d.id === fichada.dependencia_id),
+        }));
+        allRecords.push(...withDeps);
+        offset += EXPORT_BATCH_SIZE;
+        if (data.length < EXPORT_BATCH_SIZE) {
+          hasMore = false;
+        }
+      }
+    }
+
+    return allRecords;
+  };
+
+  const generateCSVContent = (data: FichadaConDependencia[]) => {
     const headers = ["Fecha y Hora", "DNI", "Tipo", "Dependencia", "Ubicación"];
-    const rows = filteredFichadas.map((f) => [
+    const rows = data.map((f) => [
       new Date(f.fecha_hora).toLocaleString("es-AR"),
       f.documento,
       f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1),
@@ -210,19 +244,32 @@ export default function AdminPanel() {
       f.latitud && f.longitud ? `${f.latitud}, ${f.longitud}` : "No disponible",
     ]);
 
-    const csvContent = [
+    return [
       headers.join(","),
       ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
     ].join("\n");
+  };
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const generateTXTContent = (data: FichadaConDependencia[]) => {
+    const lines = data.map((f) => {
+      const fecha = new Date(f.fecha_hora);
+      const dia = fecha.getDate().toString().padStart(2, "0");
+      const mes = (fecha.getMonth() + 1).toString().padStart(2, "0");
+      const anio = fecha.getFullYear().toString();
+      const hora = fecha.getHours().toString().padStart(2, "0");
+      const minutos = fecha.getMinutes().toString().padStart(2, "0");
+      const dni = f.documento.padEnd(9, " ");
+      return `${dni} ${dia} ${mes} ${anio} ${hora} ${minutos}`;
+    });
+    return lines.join("\n");
+  };
+
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `fichadas_${new Date().toISOString().split("T")[0]}.csv`
-    );
+    link.setAttribute("download", filename);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -230,37 +277,42 @@ export default function AdminPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const exportToCSV = () => {
+    const content = generateCSVContent(displayFichadas);
+    downloadFile(content, `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.csv`, "text/csv;charset=utf-8;");
+  };
+
   const exportToTXT = () => {
-    const lines = filteredFichadas.map((f) => {
-      const fecha = new Date(f.fecha_hora);
+    const content = generateTXTContent(displayFichadas);
+    downloadFile(content, `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.txt`, "text/plain;charset=utf-8;");
+  };
 
-      const dia = fecha.getDate().toString().padStart(2, "0");
-      const mes = (fecha.getMonth() + 1).toString().padStart(2, "0");
-      const anio = fecha.getFullYear().toString();
-      const hora = fecha.getHours().toString().padStart(2, "0");
-      const minutos = fecha.getMinutes().toString().padStart(2, "0");
+  const exportAllCSV = async () => {
+    setExportingAll(true);
+    try {
+      const allData = await fetchAllFiltered(dependencias);
+      const content = generateCSVContent(allData);
+      downloadFile(content, `fichadas_completo_${new Date().toISOString().split("T")[0]}.csv`, "text/csv;charset=utf-8;");
+    } catch (err) {
+      logger.error("Error exportando todos los registros CSV:", err);
+      setError("Error al exportar. Intente nuevamente.");
+    } finally {
+      setExportingAll(false);
+    }
+  };
 
-      const dni = f.documento.padEnd(9, " ");
-      const linea = `${dni} ${dia} ${mes} ${anio} ${hora} ${minutos}`;
-
-      return linea;
-    });
-
-    const txtContent = lines.join("\n");
-
-    const blob = new Blob([txtContent], { type: "text/plain;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `fichadas_${new Date().toISOString().split("T")[0]}.txt`
-    );
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const exportAllTXT = async () => {
+    setExportingAll(true);
+    try {
+      const allData = await fetchAllFiltered(dependencias);
+      const content = generateTXTContent(allData);
+      downloadFile(content, `fichadas_completo_${new Date().toISOString().split("T")[0]}.txt`, "text/plain;charset=utf-8;");
+    } catch (err) {
+      logger.error("Error exportando todos los registros TXT:", err);
+      setError("Error al exportar. Intente nuevamente.");
+    } finally {
+      setExportingAll(false);
+    }
   };
 
   const clearFilters = () => {
@@ -296,7 +348,7 @@ export default function AdminPanel() {
     }
   };
 
-  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
@@ -352,9 +404,9 @@ export default function AdminPanel() {
 
           {/* Estadísticas */}
           <StatsCards
-            totalFichadas={filteredFichadas.length}
-            entradas={filteredFichadas.filter((f) => f.tipo === "entrada").length}
-            salidas={filteredFichadas.filter((f) => f.tipo === "salida").length}
+            totalFichadas={totalCount}
+            entradas={displayFichadas.filter((f) => f.tipo === "entrada").length}
+            salidas={displayFichadas.filter((f) => f.tipo === "salida").length}
             dependencias={dependencias.length}
           />
         </div>
@@ -386,7 +438,11 @@ export default function AdminPanel() {
           <ExportButtons
             onExportCSV={exportToCSV}
             onExportTXT={exportToTXT}
-            recordCount={filteredFichadas.length}
+            onExportAllCSV={exportAllCSV}
+            onExportAllTXT={exportAllTXT}
+            recordCount={displayFichadas.length}
+            totalFilteredCount={totalCount}
+            exportingAll={exportingAll}
           />
         </div>
 
@@ -401,68 +457,55 @@ export default function AdminPanel() {
         {/* Tabla de fichadas */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
           <FichadasTable
-            fichadas={filteredFichadas}
+            fichadas={displayFichadas}
             loading={loading}
             onSelectFichada={setSelectedFichada}
           />
 
           {/* Paginación */}
-          {!loading && totalCount > ITEMS_PER_PAGE && (
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <div className="flex-1 flex justify-between sm:hidden">
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(prev - 1, 1))
-                  }
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Anterior
-                </button>
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) =>
-                      Math.min(prev + 1, totalPages)
-                    )
-                  }
-                  disabled={currentPage === totalPages}
-                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Siguiente
-                </button>
-              </div>
-              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    Mostrando{" "}
-                    <span className="font-medium">
-                      {(currentPage - 1) * ITEMS_PER_PAGE + 1}
-                    </span>{" "}
-                    a{" "}
-                    <span className="font-medium">
-                      {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)}
-                    </span>{" "}
-                    de <span className="font-medium">{totalCount}</span>{" "}
-                    resultados
-                  </p>
-                </div>
-                <div>
-                  <nav
-                    className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
-                    aria-label="Pagination"
+          {!loading && (
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+              {/* Selector de registros por página */}
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600 dark:text-gray-400">Registros por página:</label>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-blue-500"
                   >
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  Mostrando{" "}
+                  <span className="font-medium">
+                    {totalCount === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}
+                  </span>{" "}
+                  a{" "}
+                  <span className="font-medium">
+                    {Math.min(currentPage * itemsPerPage, totalCount)}
+                  </span>{" "}
+                  de <span className="font-medium">{totalCount}</span>{" "}
+                  resultados
+                </p>
+              </div>
+
+              {/* Botones de paginación */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 flex justify-between sm:hidden">
                     <button
                       onClick={() =>
                         setCurrentPage((prev) => Math.max(prev - 1, 1))
                       }
                       disabled={currentPage === 1}
-                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <ChevronLeft className="h-5 w-5" />
+                      Anterior
                     </button>
-                    <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Página {currentPage} de {totalPages}
-                    </span>
                     <button
                       onClick={() =>
                         setCurrentPage((prev) =>
@@ -470,13 +513,43 @@ export default function AdminPanel() {
                         )
                       }
                       disabled={currentPage === totalPages}
-                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <ChevronRight className="h-5 w-5" />
+                      Siguiente
                     </button>
-                  </nav>
+                  </div>
+                  <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-end">
+                    <nav
+                      className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px"
+                      aria-label="Pagination"
+                    >
+                      <button
+                        onClick={() =>
+                          setCurrentPage((prev) => Math.max(prev - 1, 1))
+                        }
+                        disabled={currentPage === 1}
+                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Página {currentPage} de {totalPages}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setCurrentPage((prev) =>
+                            Math.min(prev + 1, totalPages)
+                          )
+                        }
+                        disabled={currentPage === totalPages}
+                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-500 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+                    </nav>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>

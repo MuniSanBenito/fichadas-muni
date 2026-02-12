@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
     Building2,
     Plus,
@@ -56,6 +56,9 @@ export default function DependenciasManager() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [formData, setFormData] = useState<DependenciaFormData>(INITIAL_FORM);
     const [gpsLoading, setGpsLoading] = useState(false);
+
+    // Ref para scroll al formulario
+    const formRef = useRef<HTMLFormElement>(null);
 
     const loadDependencias = useCallback(async () => {
         setLoading(true);
@@ -278,6 +281,11 @@ export default function DependenciasManager() {
         setShowForm(true);
         setError("");
         setSuccess("");
+
+        // Scroll al formulario para que el usuario lo vea
+        setTimeout(() => {
+            formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 100);
     };
 
     const handleDelete = async (id: string, nombre: string) => {
@@ -335,6 +343,10 @@ export default function DependenciasManager() {
                             setShowForm(true);
                             setFormData(INITIAL_FORM);
                             setEditingId(null);
+                            // Scroll al formulario
+                            setTimeout(() => {
+                                formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }, 100);
                         }}
                         className="flex items-center gap-2 bg-[#b6c544] hover:bg-[#9fb338] text-white px-4 py-2 rounded-lg transition shadow-lg hover:shadow-xl font-medium"
                     >
@@ -359,7 +371,7 @@ export default function DependenciasManager() {
 
             {/* Formulario */}
             {showForm && (
-                <form onSubmit={handleSubmit} className="mb-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                <form ref={formRef} onSubmit={handleSubmit} className="mb-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                         {editingId ? "Editar Dependencia" : "Nueva Dependencia"}
                     </h3>
