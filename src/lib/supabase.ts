@@ -28,6 +28,7 @@ export interface Fichada {
   latitud?: number;
   longitud?: number;
   fecha_hora: string;
+  origen: string;
   created_at: string;
 }
 
@@ -38,4 +39,5 @@ export interface FichadaInsert {
   foto_url?: string;
   latitud?: number;
   longitud?: number;
+  origen?: string;
 }

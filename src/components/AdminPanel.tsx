@@ -30,6 +30,7 @@ import {
   FichadaModal,
   ExportButtons,
   DependenciasManager,
+  ImportRelojFisico,
 } from "./admin";
 
 export interface FichadaConDependencia extends Fichada {
@@ -41,7 +42,9 @@ const EXPORT_BATCH_SIZE = 1000;
 
 export default function AdminPanel() {
   const [fichadas, setFichadas] = useState<FichadaConDependencia[]>([]);
-  const [displayFichadas, setDisplayFichadas] = useState<FichadaConDependencia[]>([]);
+  const [displayFichadas, setDisplayFichadas] = useState<
+    FichadaConDependencia[]
+  >([]);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,7 +52,9 @@ export default function AdminPanel() {
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(
+    PAGE_SIZE_OPTIONS[0],
+  );
 
   // Export
   const [exportingAll, setExportingAll] = useState(false);
@@ -69,7 +74,9 @@ export default function AdminPanel() {
     useState<FichadaConDependencia | null>(null);
 
   const calcularDistanciaDependencia = useCallback(
-    (fichada: FichadaConDependencia): { distancia: number; valida: boolean } | null => {
+    (
+      fichada: FichadaConDependencia,
+    ): { distancia: number; valida: boolean } | null => {
       if (
         !fichada.latitud ||
         !fichada.longitud ||
@@ -83,7 +90,7 @@ export default function AdminPanel() {
         fichada.latitud,
         fichada.longitud,
         fichada.dependencia.latitud,
-        fichada.dependencia.longitud
+        fichada.dependencia.longitud,
       );
 
       const radioPermitido = fichada.dependencia.radio_metros || 100;
@@ -92,7 +99,7 @@ export default function AdminPanel() {
         valida: distancia <= radioPermitido,
       };
     },
-    []
+    [],
   );
 
   // Builds a Supabase query with all server-side filters applied
@@ -117,7 +124,13 @@ export default function AdminPanel() {
       }
       return query;
     },
-    [searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta]
+    [
+      searchDni,
+      selectedDependencia,
+      selectedTipoFichada,
+      fechaDesde,
+      fechaHasta,
+    ],
   );
 
   // Client-side GPS filter (can't be done in Supabase)
@@ -129,7 +142,7 @@ export default function AdminPanel() {
         return distanciaInfo && !distanciaInfo.valida;
       });
     },
-    [soloFueraDeRango, calcularDistanciaDependencia]
+    [soloFueraDeRango, calcularDistanciaDependencia],
   );
 
   // Update displayFichadas when fichadas or GPS filter changes
@@ -141,12 +154,27 @@ export default function AdminPanel() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, itemsPerPage, searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    searchDni,
+    selectedDependencia,
+    selectedTipoFichada,
+    fechaDesde,
+    fechaHasta,
+  ]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchDni, selectedDependencia, selectedTipoFichada, fechaDesde, fechaHasta, itemsPerPage]);
+  }, [
+    searchDni,
+    selectedDependencia,
+    selectedTipoFichada,
+    fechaDesde,
+    fechaHasta,
+    itemsPerPage,
+  ]);
 
   const loadData = async () => {
     setLoading(true);
@@ -182,10 +210,12 @@ export default function AdminPanel() {
       setTotalCount(count || 0);
 
       // Combinar fichadas con sus dependencias
-      const fichadasConDependencia = (fichadasData || []).map((fichada: Fichada) => ({
-        ...fichada,
-        dependencia: depData?.find((d) => d.id === fichada.dependencia_id),
-      }));
+      const fichadasConDependencia = (fichadasData || []).map(
+        (fichada: Fichada) => ({
+          ...fichada,
+          dependencia: depData?.find((d) => d.id === fichada.dependencia_id),
+        }),
+      );
 
       setFichadas(fichadasConDependencia);
     } catch (err) {
@@ -197,15 +227,15 @@ export default function AdminPanel() {
   };
 
   // Fetch ALL filtered records in batches (for export)
-  const fetchAllFiltered = async (depData: Dependencia[]): Promise<FichadaConDependencia[]> => {
+  const fetchAllFiltered = async (
+    depData: Dependencia[],
+  ): Promise<FichadaConDependencia[]> => {
     const allRecords: FichadaConDependencia[] = [];
     let offset = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const baseQuery = supabase
-        .from("fichadas")
-        .select("*");
+      const baseQuery = supabase.from("fichadas").select("*");
 
       const { data, error: fetchError } = await buildFilteredQuery(baseQuery)
         .order("fecha_hora", { ascending: false })
@@ -234,7 +264,7 @@ export default function AdminPanel() {
   const generateCSVContent = (data: FichadaConDependencia[]) => {
     const headers = ["Fecha y Hora", "DNI", "Tipo", "Dependencia", "Ubicación"];
     const rows = data.map((f) => [
-      new Date(f.fecha_hora).toLocaleString("es-AR"),
+      new Date(f.fecha_hora).toLocaleString("es-AR", { hour12: false }),
       f.documento,
       f.tipo.charAt(0).toUpperCase() + f.tipo.slice(1),
       f.dependencia?.nombre || "N/A",
@@ -261,7 +291,11 @@ export default function AdminPanel() {
     return lines.join("\n");
   };
 
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
+  const downloadFile = (
+    content: string,
+    filename: string,
+    mimeType: string,
+  ) => {
     const blob = new Blob([content], { type: mimeType });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -276,12 +310,20 @@ export default function AdminPanel() {
 
   const exportToCSV = () => {
     const content = generateCSVContent(displayFichadas);
-    downloadFile(content, `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.csv`, "text/csv;charset=utf-8;");
+    downloadFile(
+      content,
+      `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.csv`,
+      "text/csv;charset=utf-8;",
+    );
   };
 
   const exportToTXT = () => {
     const content = generateTXTContent(displayFichadas);
-    downloadFile(content, `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.txt`, "text/plain;charset=utf-8;");
+    downloadFile(
+      content,
+      `fichadas_pagina_${currentPage}_${new Date().toISOString().split("T")[0]}.txt`,
+      "text/plain;charset=utf-8;",
+    );
   };
 
   const exportAllCSV = async () => {
@@ -289,7 +331,11 @@ export default function AdminPanel() {
     try {
       const allData = await fetchAllFiltered(dependencias);
       const content = generateCSVContent(allData);
-      downloadFile(content, `fichadas_completo_${new Date().toISOString().split("T")[0]}.csv`, "text/csv;charset=utf-8;");
+      downloadFile(
+        content,
+        `fichadas_completo_${new Date().toISOString().split("T")[0]}.csv`,
+        "text/csv;charset=utf-8;",
+      );
     } catch (err) {
       logger.error("Error exportando todos los registros CSV:", err);
       setError("Error al exportar. Intente nuevamente.");
@@ -303,7 +349,11 @@ export default function AdminPanel() {
     try {
       const allData = await fetchAllFiltered(dependencias);
       const content = generateTXTContent(allData);
-      downloadFile(content, `fichadas_completo_${new Date().toISOString().split("T")[0]}.txt`, "text/plain;charset=utf-8;");
+      downloadFile(
+        content,
+        `fichadas_completo_${new Date().toISOString().split("T")[0]}.txt`,
+        "text/plain;charset=utf-8;",
+      );
     } catch (err) {
       logger.error("Error exportando todos los registros TXT:", err);
       setError("Error al exportar. Intente nuevamente.");
@@ -402,7 +452,9 @@ export default function AdminPanel() {
           {/* Estadísticas */}
           <StatsCards
             totalFichadas={totalCount}
-            entradas={displayFichadas.filter((f) => f.tipo === "entrada").length}
+            entradas={
+              displayFichadas.filter((f) => f.tipo === "entrada").length
+            }
             salidas={displayFichadas.filter((f) => f.tipo === "salida").length}
             dependencias={dependencias.length}
           />
@@ -443,6 +495,12 @@ export default function AdminPanel() {
           />
         </div>
 
+        {/* Importar Reloj Físico */}
+        <ImportRelojFisico
+          dependencias={dependencias}
+          onImportComplete={loadData}
+        />
+
         {/* Error Message */}
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
@@ -465,21 +523,27 @@ export default function AdminPanel() {
               {/* Selector de registros por página */}
               <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600 dark:text-gray-400">Registros por página:</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-400">
+                    Registros por página:
+                  </label>
                   <select
                     value={itemsPerPage}
                     onChange={(e) => setItemsPerPage(Number(e.target.value))}
                     className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-blue-500"
                   >
                     {PAGE_SIZE_OPTIONS.map((size) => (
-                      <option key={size} value={size}>{size}</option>
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   Mostrando{" "}
                   <span className="font-medium">
-                    {totalCount === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}
+                    {totalCount === 0
+                      ? 0
+                      : (currentPage - 1) * itemsPerPage + 1}
                   </span>{" "}
                   a{" "}
                   <span className="font-medium">
@@ -505,9 +569,7 @@ export default function AdminPanel() {
                     </button>
                     <button
                       onClick={() =>
-                        setCurrentPage((prev) =>
-                          Math.min(prev + 1, totalPages)
-                        )
+                        setCurrentPage((prev) => Math.min(prev + 1, totalPages))
                       }
                       disabled={currentPage === totalPages}
                       className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -535,7 +597,7 @@ export default function AdminPanel() {
                       <button
                         onClick={() =>
                           setCurrentPage((prev) =>
-                            Math.min(prev + 1, totalPages)
+                            Math.min(prev + 1, totalPages),
                           )
                         }
                         disabled={currentPage === totalPages}

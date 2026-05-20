@@ -5,3 +5,4 @@ export { default as FichadasTable } from './FichadasTable';
 export { default as FichadaModal } from './FichadaModal';
 export { default as ExportButtons } from './ExportButtons';
 export { default as DependenciasManager } from './DependenciasManager';
+export { default as ImportRelojFisico } from './ImportRelojFisico';

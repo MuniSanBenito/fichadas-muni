@@ -37,7 +37,11 @@ interface ErrorWithCode {
  * Type guard para verificar si un error tiene código
  */
 function isErrorWithCode(error: unknown): error is ErrorWithCode {
-  return typeof error === 'object' && error !== null && ('code' in error || 'message' in error);
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    ("code" in error || "message" in error)
+  );
 }
 
 /**
@@ -94,14 +98,20 @@ export const handleSupabaseError = (error: unknown): string => {
 // VALIDACIÓN DE ARCHIVOS
 // ==========================================
 
-export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png"];
+export const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB (optimizado para fichadas)
+export const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+];
+export const OUTPUT_IMAGE_TYPE = "image/webp"; // WebP es ~30% más eficiente que JPEG
 
 /**
  * Valida que un archivo sea una imagen válida
  */
 export const validateImageFile = (
-  blob: Blob
+  blob: Blob,
 ): { valid: boolean; error?: string } => {
   // Validar tipo
   if (!ALLOWED_IMAGE_TYPES.includes(blob.type)) {
@@ -115,7 +125,7 @@ export const validateImageFile = (
   if (blob.size > MAX_FILE_SIZE) {
     return {
       valid: false,
-      error: "La imagen es muy grande. Máximo 5MB.",
+      error: "La imagen es muy grande. Máximo 1MB.",
     };
   }
 
@@ -123,12 +133,16 @@ export const validateImageFile = (
 };
 
 /**
- * Comprime una imagen usando canvas
+ * Comprime una imagen usando canvas con optimización para fichadas
+ * - WebP por defecto (mejor compresión)
+ * - Fallback a JPEG si WebP no es soportado
+ * - Reintento con menor calidad si excede el tamaño máximo
  */
 export const compressImage = async (
   blob: Blob,
-  maxWidth: number = 1920,
-  quality: number = 0.8
+  maxWidth: number = 800, // Reducido de 1920 a 800 (suficiente para fichada facial)
+  quality: number = 0.75, // Calidad única, sin doble compresión
+  maxSizeBytes: number = MAX_FILE_SIZE,
 ): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -141,14 +155,13 @@ export const compressImage = async (
     }
 
     img.onerror = () => {
-      URL.revokeObjectURL(img.src); // Liberar memoria en error
+      URL.revokeObjectURL(img.src);
       reject(new Error("Error al cargar imagen"));
     };
 
     const objectUrl = URL.createObjectURL(blob);
     img.src = objectUrl;
 
-    // Liberar memoria después de que la imagen se cargue
     img.onload = () => {
       // Calcular nuevas dimensiones manteniendo aspect ratio
       let width = img.width;
@@ -165,21 +178,52 @@ export const compressImage = async (
       // Dibujar imagen redimensionada
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Liberar memoria de la URL del objeto
+      // Liberar memoria
       URL.revokeObjectURL(objectUrl);
 
-      // Convertir a blob con compresión
-      canvas.toBlob(
-        (compressedBlob) => {
-          if (compressedBlob) {
+      // Función para intentar compresión con calidad variable
+      const tryCompress = (currentQuality: number, isWebP: boolean): void => {
+        const mimeType = isWebP ? "image/webp" : "image/jpeg";
+
+        canvas.toBlob(
+          (compressedBlob) => {
+            if (!compressedBlob) {
+              reject(new Error("Error al comprimir imagen"));
+              return;
+            }
+
+            // Verificar tamaño final
+            const originalSize = (blob.size / 1024).toFixed(1);
+            const finalSize = (compressedBlob.size / 1024).toFixed(1);
+
+            logger.log(`📸 Imagen optimizada:`, {
+              original: `${originalSize}KB`,
+              final: `${finalSize}KB`,
+              reduccion: `${((1 - compressedBlob.size / blob.size) * 100).toFixed(0)}%`,
+              formato: isWebP ? "WebP" : "JPEG",
+              calidad: currentQuality,
+              dimensiones: `${width}x${height}`,
+            });
+
+            // Si excede el tamaño máximo y podemos bajar calidad, reintentar
+            if (compressedBlob.size > maxSizeBytes && currentQuality > 0.5) {
+              const newQuality = Math.max(0.5, currentQuality - 0.15);
+              logger.log(
+                `⚠️ Imagen excede ${(maxSizeBytes / 1024).toFixed(0)}KB, reintentando con calidad ${newQuality}`,
+              );
+              tryCompress(newQuality, isWebP);
+              return;
+            }
+
             resolve(compressedBlob);
-          } else {
-            reject(new Error("Error al comprimir imagen"));
-          }
-        },
-        "image/jpeg",
-        quality
-      );
+          },
+          mimeType,
+          currentQuality,
+        );
+      };
+
+      // Intentar WebP primero, fallback a JPEG si falla
+      tryCompress(quality, true);
     };
   });
 };
