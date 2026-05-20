@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Camera from "./Camera";
 import FichadaSuccess from "./FichadaSuccess";
 import {
@@ -9,237 +9,288 @@ import {
   type Dependencia,
   type TipoFichada,
 } from "@/lib/supabase";
-import { validarUbicacionParaFichar, validarUbicacionParaDependencia, encontrarDependenciaMasCercanaDeLista } from "@/lib/gpsConfig";
+import {
+  validarUbicacionParaFichar,
+  validarUbicacionParaDependencia,
+  encontrarDependenciaMasCercanaDeLista,
+} from "@/lib/gpsConfig";
 import {
   sanitizeDNI,
   isValidDNI,
   handleSupabaseError,
+  compressImage,
   logger,
 } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
-import {
-  MapPin,
-  AlertCircle,
-  Building2,
-  LogIn,
-  LogOut,
-} from "lucide-react";
+import { MapPin, AlertCircle, Building2, LogIn, LogOut } from "lucide-react";
 
-// Datos de fichada exitosa para mostrar en la página de éxito
+// ---------------------------------------------------------------------------
+// Tipos locales
+// ---------------------------------------------------------------------------
+
 interface FichadaExitosa {
   tipoFichada: TipoFichada;
   dependenciaNombre: string;
 }
 
+// Etapas de progreso durante el submit para dar feedback claro al usuario
+type SubmitStage = "comprimiendo" | "subiendo" | "guardando";
+
+// ---------------------------------------------------------------------------
+// Constantes de GPS por plataforma (definidas fuera del componente para
+// evitar recrearlas en cada render)
+// ---------------------------------------------------------------------------
+
+const GPS_OPTIONS_HIGH_IOS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+};
+const GPS_OPTIONS_HIGH_ANDROID: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 10000,
+  maximumAge: 0,
+};
+const GPS_OPTIONS_HIGH_DESKTOP: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 8000,
+  maximumAge: 0,
+};
+// Fallback de baja precisión cuando hay timeout en el primer intento
+const GPS_OPTIONS_LOW: PositionOptions = {
+  enableHighAccuracy: false,
+  timeout: 20000,
+  maximumAge: 30000,
+};
+
+// ---------------------------------------------------------------------------
+// Detección de plataforma (ejecutada una sola vez fuera del componente)
+// ---------------------------------------------------------------------------
+
+const detectDevice = () => {
+  if (typeof window === "undefined")
+    return { isIOS: false, isAndroid: false, isMobile: false };
+  const ua = navigator.userAgent.toLowerCase();
+  return {
+    isIOS:
+      /iphone|ipad|ipod/.test(ua) ||
+      (ua.includes("mac") && "ontouchend" in document),
+    isAndroid: /android/i.test(ua),
+    isMobile:
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent,
+      ),
+  };
+};
+
+const DEVICE_INFO = detectDevice();
+
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
+
 export default function FichadasForm() {
   const [documento, setDocumento] = useState("");
+  // photoBlob almacena la imagen YA comprimida (WebP) lista para subir
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  // photoPreview es la ObjectURL del blob comprimido; se revoca al reemplazar
   const [photoPreview, setPhotoPreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const [fichadaExitosa, setFichadaExitosa] = useState<FichadaExitosa | null>(null);
+  // Etapa actual del proceso de envío para mensajes granulares
+  const [submitStage, setSubmitStage] = useState<SubmitStage | null>(null);
+  const [fichadaExitosa, setFichadaExitosa] = useState<FichadaExitosa | null>(
+    null,
+  );
   const [error, setError] = useState("");
   const [dependencia, setDependencia] = useState<Dependencia | null>(null);
   const [dependencias, setDependencias] = useState<Dependencia[]>([]);
   const [tipoFichada, setTipoFichada] = useState<TipoFichada>("entrada");
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
-    null
-  );
+  const [location, setLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [locationValidation, setLocationValidation] = useState<{
     permitido: boolean;
     mensaje: string;
   } | null>(null);
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
-  // Detectar plataforma una sola vez
-  const [deviceInfo] = useState(() => {
-    if (typeof window === "undefined") return { isIOS: false, isAndroid: false, isMobile: false };
-    const ua = navigator.userAgent.toLowerCase();
-    return {
-      isIOS: /iphone|ipad|ipod/.test(ua) || (ua.includes("mac") && "ontouchend" in document),
-      isAndroid: /android/i.test(ua),
-      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+  // Ref para bloquear doble submit: más confiable que useState porque no
+  // depende del ciclo de render para actualizarse sincrónicamente
+  const isSubmittingRef = useRef(false);
+
+  // Ref para rastrear si el componente sigue montado y cancelar operaciones
+  // asíncronas cuando se desmonte (evita setState en componente desmontado)
+  const isMountedRef = useRef(true);
+
+  // Ref para cancelar el retry de GPS si se desmonta antes del timeout
+  const gpsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Cancelar timer de retry GPS al desmontar
+      if (gpsRetryTimerRef.current !== null) {
+        clearTimeout(gpsRetryTimerRef.current);
+      }
     };
-  });
+  }, []);
 
-  // Watch ID para limpiar en móviles
-  const [watchId, setWatchId] = useState<number | null>(null);
+  // ---------------------------------------------------------------------------
+  // GPS — solicitarUbicacion
+  // Usa únicamente getCurrentPosition (sin watchPosition ni setInterval):
+  // - Menor consumo de batería
+  // - Sin múltiples callbacks simultáneos
+  // - Retry controlado: intento de alta precisión → fallback baja precisión
+  // ---------------------------------------------------------------------------
 
-  // Función para solicitar ubicación GPS optimizada para móviles
-  const solicitarUbicacion = () => {
+  const solicitarUbicacion = useCallback(() => {
     if (!navigator.geolocation) {
       logger.error("Geolocalización no disponible");
       setError(
-        "⚠️ Tu navegador no soporta geolocalización. Por favor usa Chrome, Firefox o Safari."
+        "⚠️ Tu navegador no soporta geolocalización. Por favor usa Chrome, Firefox o Safari.",
       );
       setGpsPermissionDenied(true);
       return;
     }
 
-    logger.log(`🔄 Solicitando ubicación GPS... (${deviceInfo.isIOS ? "iOS" : deviceInfo.isAndroid ? "Android" : "Desktop"})`);
+    const platform = DEVICE_INFO.isIOS
+      ? "iOS"
+      : DEVICE_INFO.isAndroid
+        ? "Android"
+        : "Desktop";
+    logger.log(`🔄 Solicitando ubicación GPS... (${platform})`);
 
-    // Configuración optimizada por plataforma
-    const geoOptionsHigh: PositionOptions = deviceInfo.isIOS
-      ? { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      : deviceInfo.isAndroid
-        ? { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        : { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+    const geoOptionsHigh = DEVICE_INFO.isIOS
+      ? GPS_OPTIONS_HIGH_IOS
+      : DEVICE_INFO.isAndroid
+        ? GPS_OPTIONS_HIGH_ANDROID
+        : GPS_OPTIONS_HIGH_DESKTOP;
 
-    const geoOptionsLow: PositionOptions = {
-      enableHighAccuracy: false,
-      timeout: 20000,
-      maximumAge: 30000
-    };
-
-    // Handler de éxito
+    // Handler de éxito compartido entre intento principal y retry
     const onSuccess = (position: GeolocationPosition) => {
+      if (!isMountedRef.current) return;
       logger.log("✅ Ubicación obtenida:", {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
       });
-
-      const userLocation = {
+      setLocation({
         lat: position.coords.latitude,
         lng: position.coords.longitude,
-      };
-      setLocation(userLocation);
+      });
       setGpsPermissionDenied(false);
       setError("");
-
-      logger.log("📍 Ubicación guardada, se validará al seleccionar dependencia");
     };
 
-    // Handler de error
-    const onError = (err: GeolocationPositionError, isRetry: boolean = false) => {
-      logger.error("❌ Error obteniendo ubicación:", err.message, "Código:", err.code);
+    // Handler de error del retry de baja precisión (no reintenta más)
+    const onErrorFallback = (err: GeolocationPositionError) => {
+      if (!isMountedRef.current) return;
+      logger.error("❌ Error GPS (fallback):", err.message);
+      setGpsPermissionDenied(true);
+      setError(
+        "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y presiona 'Reintentar GPS' para volver a intentar.",
+      );
+    };
+
+    // Handler de error del intento principal
+    const onError = (err: GeolocationPositionError) => {
+      if (!isMountedRef.current) return;
+      logger.error("❌ Error GPS:", err.message, "Código:", err.code);
 
       if (err.code === 1) {
-        // PERMISSION_DENIED
-        let errorMsg = "🚫 Necesitamos acceso a tu ubicación para verificar que estés en una dependencia municipal. ";
-
-        if (deviceInfo.isIOS) {
-          errorMsg += "Ve a Configuración > Privacidad > Servicios de ubicación > Safari y selecciona 'Mientras se usa la app'.";
-        } else if (deviceInfo.isAndroid) {
-          errorMsg += "Toca el ícono de candado/info en la barra de direcciones y permite el acceso a la ubicación.";
+        // PERMISSION_DENIED — no tiene sentido reintentar
+        let errorMsg =
+          "🚫 Necesitamos acceso a tu ubicación para verificar que estés en una dependencia municipal. ";
+        if (DEVICE_INFO.isIOS) {
+          errorMsg +=
+            "Ve a Configuración > Privacidad > Servicios de ubicación > Safari y selecciona 'Mientras se usa la app'.";
+        } else if (DEVICE_INFO.isAndroid) {
+          errorMsg +=
+            "Toca el ícono de candado/info en la barra de direcciones y permite el acceso a la ubicación.";
         } else {
-          errorMsg += "Por favor, habilita los permisos de ubicación en tu navegador y presiona 'Reintentar GPS'.";
+          errorMsg +=
+            "Por favor, habilita los permisos de ubicación en tu navegador y presiona 'Reintentar GPS'.";
         }
-
         setGpsPermissionDenied(true);
         setError(errorMsg);
-      } else if (err.code === 3 && !isRetry) {
-        // TIMEOUT - reintentar con baja precisión
-        logger.log("⏱️ Timeout - reintentando con baja precisión...");
-        setRetryCount((prev) => prev + 1);
-
+      } else if (err.code === 3) {
+        // TIMEOUT — reintentar una vez con baja precisión para no quedar bloqueado
+        logger.log("⏱️ Timeout GPS — reintentando con baja precisión...");
         navigator.geolocation.getCurrentPosition(
           onSuccess,
-          (e) => onError(e, true),
-          geoOptionsLow
+          onErrorFallback,
+          GPS_OPTIONS_LOW,
         );
       } else if (err.code === 2) {
         // POSITION_UNAVAILABLE
         let errorMsg = "⚠️ No se pudo determinar tu ubicación. ";
-
-        if (deviceInfo.isIOS) {
-          errorMsg += "Asegúrate de tener los Servicios de ubicación activados en Configuración > Privacidad.";
-        } else if (deviceInfo.isAndroid) {
-          errorMsg += "Activa el GPS desde la barra de notificaciones o ve a Configuración > Ubicación.";
+        if (DEVICE_INFO.isIOS) {
+          errorMsg +=
+            "Asegúrate de tener los Servicios de ubicación activados en Configuración > Privacidad.";
+        } else if (DEVICE_INFO.isAndroid) {
+          errorMsg +=
+            "Activa el GPS desde la barra de notificaciones o ve a Configuración > Ubicación.";
         } else {
           errorMsg += "Verifica que tengas GPS activado.";
         }
-
         setGpsPermissionDenied(true);
         setError(errorMsg);
       } else {
         setGpsPermissionDenied(true);
         setError(
-          "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y " +
-          "presiona 'Reintentar GPS' para volver a intentar."
+          "⚠️ No se pudo obtener tu ubicación. Verifica que tengas GPS activado y presiona 'Reintentar GPS' para volver a intentar.",
         );
       }
     };
 
-    // En móviles, usar watchPosition para activar el GPS más rápido
-    if (deviceInfo.isMobile) {
-      // Limpiar watch anterior si existe
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-      }
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
+      onError,
+      geoOptionsHigh,
+    );
+  }, []); // sin dependencias: usa solo refs y constantes externas
 
-      const newWatchId = navigator.geolocation.watchPosition(
-        (position) => {
-          // Al obtener la primera posición, dejar de observar
-          navigator.geolocation.clearWatch(newWatchId);
-          setWatchId(null);
-          onSuccess(position);
-        },
-        (err) => {
-          navigator.geolocation.clearWatch(newWatchId);
-          setWatchId(null);
-          onError(err);
-        },
-        geoOptionsHigh
-      );
-
-      setWatchId(newWatchId);
-
-      // Fallback con getCurrentPosition después de 3 segundos
-      setTimeout(() => {
-        if (!location) {
-          navigator.geolocation.getCurrentPosition(onSuccess, onError, geoOptionsHigh);
-        }
-      }, 3000);
-    } else {
-      // En desktop, usar getCurrentPosition directamente
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, geoOptionsHigh);
-    }
-  };
+  // ---------------------------------------------------------------------------
+  // Efecto inicial: cargar dependencias + solicitar GPS una vez
+  // No hay setInterval — si el GPS falla, el usuario usa el botón "Reintentar"
+  // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    // Cargar todas las dependencias
     loadDependencias();
 
-    // Pequeño delay en iOS para asegurar que la página esté cargada
-    const delay = deviceInfo.isIOS ? 500 : 0;
-    const timeoutId = setTimeout(solicitarUbicacion, delay);
-
-    // Reintentar cada 15 segundos si no tenemos ubicación
-    const intervalo = setInterval(() => {
-      if (!location && !gpsPermissionDenied) {
-        logger.log("🔄 Reintentando obtener ubicación automáticamente...");
-        solicitarUbicacion();
-      }
-    }, 15000);
+    // Pequeño delay en iOS para asegurar que el contexto de página esté listo
+    const delay = DEVICE_INFO.isIOS ? 500 : 0;
+    gpsRetryTimerRef.current = setTimeout(solicitarUbicacion, delay);
 
     return () => {
-      clearTimeout(timeoutId);
-      clearInterval(intervalo);
-      // Limpiar watchPosition si existe
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
+      if (gpsRetryTimerRef.current !== null) {
+        clearTimeout(gpsRetryTimerRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [solicitarUbicacion]);
 
-  // Auto-seleccionar la dependencia más cercana cuando se obtiene la ubicación
+  // Auto-seleccionar la dependencia más cercana cuando llega la ubicación
   useEffect(() => {
-    // Solo auto-seleccionar si no hay dependencia seleccionada manualmente
     if (!location || dependencias.length === 0 || dependencia) return;
 
-    const dependenciaCercana = encontrarDependenciaMasCercanaDeLista(location, dependencias);
-
+    const dependenciaCercana = encontrarDependenciaMasCercanaDeLista(
+      location,
+      dependencias,
+    );
     if (dependenciaCercana) {
-      // Buscar la dependencia completa en la lista
-      const dependenciaCompleta = dependencias.find(d => d.id === dependenciaCercana.id);
+      const dependenciaCompleta = dependencias.find(
+        (d) => d.id === dependenciaCercana.id,
+      );
       if (dependenciaCompleta) {
         setDependencia(dependenciaCompleta);
-        logger.log(`📍 Auto-seleccionada dependencia más cercana: ${dependenciaCercana.nombre} (${dependenciaCercana.distancia}m)`);
+        logger.log(
+          `📍 Auto-seleccionada: ${dependenciaCercana.nombre} (${dependenciaCercana.distancia}m)`,
+        );
       }
     }
-  }, [location, dependencias]); // No incluir 'dependencia' para evitar ciclos
+  }, [location, dependencias]); // dependencia excluida intencionalmente para evitar ciclos
 
   // Validar ubicación cuando cambie la dependencia seleccionada o la ubicación
   useEffect(() => {
@@ -247,8 +298,6 @@ export default function FichadasForm() {
       setLocationValidation(null);
       return;
     }
-
-    // Si hay una dependencia seleccionada, validar contra ella
     if (dependencia) {
       const validation = validarUbicacionParaDependencia(location, {
         nombre: dependencia.nombre,
@@ -257,117 +306,216 @@ export default function FichadasForm() {
         radio_metros: dependencia.radio_metros,
       });
       setLocationValidation(validation);
-      logger.log("📍 Validación GPS contra dependencia seleccionada:", validation);
+      logger.log("📍 Validación GPS (dependencia):", validation);
     } else {
-      // Si no hay dependencia seleccionada, validar contra la dependencia más cercana (comportamiento original)
       const validation = validarUbicacionParaFichar(location);
       setLocationValidation(validation);
-      logger.log("📍 Validación GPS general:", validation);
+      logger.log("📍 Validación GPS (general):", validation);
     }
   }, [location, dependencia]);
 
-  const loadDependencias = async () => {
+  // ---------------------------------------------------------------------------
+  // Carga de dependencias desde Supabase
+  // ---------------------------------------------------------------------------
+
+  const loadDependencias = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("dependencias")
         .select("*")
         .order("nombre");
-
       if (error) throw error;
-
-      setDependencias(data || []);
+      if (isMountedRef.current) setDependencias(data || []);
     } catch (err) {
       logger.error("Error cargando dependencias:", err);
-      setError(handleSupabaseError(err));
+      if (isMountedRef.current) setError(handleSupabaseError(err));
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Captura de foto — comprime a WebP 640px antes de almacenar en estado
+  // Revoca la ObjectURL anterior para evitar memory leaks
+  // ---------------------------------------------------------------------------
+
+  const handlePhotoCapture = useCallback(
+    async (blob: Blob) => {
+      try {
+        // Revocar URL previa si existe para liberar memoria
+        if (photoPreview) {
+          URL.revokeObjectURL(photoPreview);
+        }
+
+        // Comprimir la imagen capturada: WebP, máx 640px, calidad 0.7
+        // La función compressImage ya maneja fallback a JPEG si WebP no está disponible
+        const comprimida = await compressImage(blob, 640, 0.7);
+
+        if (!isMountedRef.current) return;
+
+        const previewUrl = URL.createObjectURL(comprimida);
+        setPhotoBlob(comprimida);
+        setPhotoPreview(previewUrl);
+      } catch (err) {
+        logger.error("Error comprimiendo imagen:", err);
+        // Si la compresión falla, usar el blob original como fallback
+        if (isMountedRef.current) {
+          if (photoPreview) URL.revokeObjectURL(photoPreview);
+          const previewUrl = URL.createObjectURL(blob);
+          setPhotoBlob(blob);
+          setPhotoPreview(previewUrl);
+        }
+      }
+    },
+    [photoPreview], // depende de photoPreview para revocar la URL anterior
+  );
+
+  // Limpiar foto y revocar ObjectURL al descartar
+  const handleDiscardPhoto = useCallback(() => {
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+    }
+    setPhotoBlob(null);
+    setPhotoPreview("");
+  }, [photoPreview]);
+
+  // Cleanup final de la ObjectURL al desmontar el componente
+  useEffect(() => {
+    return () => {
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Submit del formulario
+  // Protegido contra doble submit con isSubmittingRef (síncrono) + loading (UI)
+  // La imagen ya viene comprimida desde handlePhotoCapture
+  // ---------------------------------------------------------------------------
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+
+      // Bloqueo doble submit: la ref es síncrona, no depende del ciclo de render
+      if (isSubmittingRef.current) return;
+
+      const dniSanitizado = sanitizeDNI(documento);
+      if (!isValidDNI(dniSanitizado)) {
+        setError("Por favor ingresá un DNI válido (7 u 8 dígitos)");
+        return;
+      }
+      if (!dependencia) {
+        setError("Por favor seleccioná una dependencia");
+        return;
+      }
+      if (!photoBlob) {
+        setError("Por favor tomá una foto");
+        return;
+      }
+      if (!location) {
+        setError("Esperando ubicación GPS...");
+        return;
+      }
+
+      // Marcar como en progreso antes de cualquier await
+      isSubmittingRef.current = true;
+      setLoading(true);
+      setError("");
+
+      try {
+        // --- Etapa 1: la compresión ya se hizo al capturar, aquí solo informamos ---
+        setSubmitStage("subiendo");
+
+        // La imagen ya está comprimida en WebP; usar extensión correcta
+        const isWebP = photoBlob.type === "image/webp";
+        const ext = isWebP ? "webp" : "jpg";
+        const contentType = isWebP ? "image/webp" : "image/jpeg";
+        const fileName = `${Date.now()}-${dniSanitizado}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("fotos-fichadas")
+          .upload(fileName, photoBlob, {
+            contentType,
+            // upsert: false por defecto — evita sobreescritura accidental
+          });
+
+        if (uploadError) throw uploadError;
+
+        // Obtener URL pública (operación local, sin round-trip a la red)
+        const { data: urlData } = supabase.storage
+          .from("fotos-fichadas")
+          .getPublicUrl(fileName);
+
+        // --- Etapa 2: insertar registro en la base de datos ---
+        setSubmitStage("guardando");
+
+        const fichadaData: FichadaInsert = {
+          dependencia_id: dependencia.id,
+          documento: dniSanitizado,
+          tipo: tipoFichada,
+          foto_url: urlData.publicUrl,
+          latitud: location.lat,
+          longitud: location.lng,
+        };
+
+        logger.log("Enviando fichada:", fichadaData);
+
+        const { error: insertError } = await supabase
+          .from("fichadas")
+          .insert([fichadaData]);
+
+        if (insertError) throw insertError;
+
+        // Éxito: revocar ObjectURL y limpiar estado
+        if (photoPreview) URL.revokeObjectURL(photoPreview);
+
+        setFichadaExitosa({
+          tipoFichada,
+          dependenciaNombre: dependencia.nombre,
+        });
+
+        // Resetear formulario para la próxima fichada
+        setDocumento("");
+        setPhotoBlob(null);
+        setPhotoPreview("");
+        setDependencia(null);
+        setTipoFichada("entrada");
+      } catch (err) {
+        setError(handleSupabaseError(err));
+        logger.error("Error al registrar fichada:", err);
+      } finally {
+        // Siempre desbloquear, incluso en error
+        isSubmittingRef.current = false;
+        setLoading(false);
+        setSubmitStage(null);
+      }
+    },
+    [documento, dependencia, photoBlob, photoPreview, location, tipoFichada],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Mensaje del botón de submit según etapa
+  // ---------------------------------------------------------------------------
+
+  const submitButtonLabel = () => {
+    if (!loading) return "Registrar Fichada";
+    switch (submitStage) {
+      case "comprimiendo":
+        return "Comprimiendo foto...";
+      case "subiendo":
+        return "Subiendo foto...";
+      case "guardando":
+        return "Guardando fichada...";
+      default:
+        return "Registrando fichada...";
     }
   };
 
-  const handlePhotoCapture = (blob: Blob) => {
-    setPhotoBlob(blob);
-    setPhotoPreview(URL.createObjectURL(blob));
-  };
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validar DNI
-    const dniSanitizado = sanitizeDNI(documento);
-    if (!isValidDNI(dniSanitizado)) {
-      setError("Por favor ingresá un DNI válido (7 u 8 dígitos)");
-      return;
-    }
-
-    if (!dependencia) {
-      setError("Por favor seleccioná una dependencia");
-      return;
-    }
-
-    if (!photoBlob) {
-      setError("Por favor tomá una foto");
-      return;
-    }
-
-    if (!location) {
-      setError("Esperando ubicación GPS...");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      // Subir foto a Supabase Storage
-      const fileName = `${Date.now()}-${dniSanitizado}.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from("fotos-fichadas")
-        .upload(fileName, photoBlob);
-
-      if (uploadError) throw uploadError;
-
-      // Obtener URL pública de la foto
-      const { data: urlData } = supabase.storage
-        .from("fotos-fichadas")
-        .getPublicUrl(fileName);
-
-      // Guardar fichada con ubicación validada
-      const fichadaData: FichadaInsert = {
-        dependencia_id: dependencia.id,
-        documento: dniSanitizado,
-        tipo: tipoFichada,
-        foto_url: urlData.publicUrl,
-        latitud: location?.lat,
-        longitud: location?.lng,
-      };
-
-      logger.log("Enviando fichada:", fichadaData);
-
-      const { error: insertError } = await supabase
-        .from("fichadas")
-        .insert([fichadaData]);
-
-      if (insertError) throw insertError;
-
-      // Guardar datos para mostrar en la página de éxito
-      setFichadaExitosa({
-        tipoFichada,
-        dependenciaNombre: dependencia.nombre,
-      });
-
-      // Limpiar datos del formulario
-      setDocumento("");
-      setPhotoBlob(null);
-      setPhotoPreview("");
-      setDependencia(null);
-      setTipoFichada("entrada");
-    } catch (err) {
-      setError(handleSupabaseError(err));
-      logger.error("Error al registrar fichada:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Si hay una fichada exitosa, mostrar la página de confirmación
   if (fichadaExitosa) {
     return (
       <FichadaSuccess
@@ -421,10 +569,7 @@ export default function FichadasForm() {
                 type="text"
                 id="documento"
                 value={documento}
-                onChange={(e) => {
-                  const sanitized = sanitizeDNI(e.target.value);
-                  setDocumento(sanitized);
-                }}
+                onChange={(e) => setDocumento(sanitizeDNI(e.target.value))}
                 placeholder="Ingrese su DNI"
                 maxLength={8}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
@@ -443,10 +588,11 @@ export default function FichadasForm() {
                   type="button"
                   onClick={() => setTipoFichada("entrada")}
                   disabled={loading}
-                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${tipoFichada === "entrada"
-                    ? "bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400"
-                    : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                    }`}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
+                    tipoFichada === "entrada"
+                      ? "bg-green-50 border-green-500 text-green-700 dark:bg-green-900/20 dark:border-green-500 dark:text-green-400"
+                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+                  }`}
                 >
                   <LogIn className="w-5 h-5" />
                   <span className="font-semibold">Entrada</span>
@@ -455,10 +601,11 @@ export default function FichadasForm() {
                   type="button"
                   onClick={() => setTipoFichada("salida")}
                   disabled={loading}
-                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${tipoFichada === "salida"
-                    ? "bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400"
-                    : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                    }`}
+                  className={`flex items-center justify-center gap-2 px-4 py-4 rounded-lg border-2 transition ${
+                    tipoFichada === "salida"
+                      ? "bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/20 dark:border-orange-500 dark:text-orange-400"
+                      : "bg-white border-gray-300 text-gray-700 hover:border-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+                  }`}
                 >
                   <LogOut className="w-5 h-5" />
                   <span className="font-semibold">Salida</span>
@@ -479,7 +626,7 @@ export default function FichadasForm() {
                 value={dependencia?.id || ""}
                 onChange={(e) => {
                   const selected = dependencias.find(
-                    (d) => d.id === e.target.value
+                    (d) => d.id === e.target.value,
                   );
                   setDependencia(selected || null);
                 }}
@@ -513,10 +660,7 @@ export default function FichadasForm() {
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      setPhotoBlob(null);
-                      setPhotoPreview("");
-                    }}
+                    onClick={handleDiscardPhoto}
                     className="w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition"
                     disabled={loading}
                   >
@@ -613,7 +757,7 @@ export default function FichadasForm() {
               {loading ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Registrando fichada...
+                  {submitButtonLabel()}
                 </>
               ) : (
                 "Registrar Fichada"
@@ -631,7 +775,7 @@ export default function FichadasForm() {
                 </div>
                 {gpsPermissionDenied && (
                   <div className="text-orange-600 dark:text-orange-400 font-medium text-center bg-orange-50 dark:bg-orange-900/20 p-2 rounded border border-orange-200 dark:border-orange-800">
-                    � Habilita los permisos de ubicación para continuar
+                    🔒 Habilita los permisos de ubicación para continuar
                   </div>
                 )}
               </div>
